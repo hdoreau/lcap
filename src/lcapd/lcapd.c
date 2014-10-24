@@ -55,10 +55,10 @@ static pthread_t sigh_thr;
 static int lcap_subtask(struct lcap_ctx *ctx, int idx,
                         void *(subtask_main)(void *), pthread_t *thr_id)
 {
-    struct wrk_args *args;
-    pthread_attr_t   attr;
-    pthread_t        thr;
-    int              rc;
+    struct subtask_args *args;
+    pthread_attr_t       attr;
+    pthread_t            thr;
+    int                  rc;
 
     rc = pthread_attr_init(&attr);
     if (rc) {
@@ -72,14 +72,14 @@ static int lcap_subtask(struct lcap_ctx *ctx, int idx,
         return -rc;
     }
 
-    args = (struct wrk_args *)malloc(sizeof(*args));
+    args = (struct subtask_args *)malloc(sizeof(*args));
     if (args == NULL) {
         lcaplog_err("Cannot allocate memory for subtask parameters");
         return -ENOMEM;
     }
 
-    args->wa_ctx = ctx;
-    args->wa_idx = idx;
+    args->sa_ctx = ctx;
+    args->sa_idx = idx;
 
     rc = pthread_create(&thr, &attr, subtask_main, args);
     if (rc) {

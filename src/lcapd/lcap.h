@@ -45,6 +45,7 @@
 
 
 struct lcap_ctx;
+struct subtask_info;
 
 
 /* --- EXTERNAL PROCESSING MODULES --- */
@@ -86,11 +87,6 @@ struct lcap_cfg {
     int              ccf_verbosity;
     unsigned int     ccf_rec_batch_count;
     int              ccf_worker_count;
-};
-
-struct subtask_info {
-    pthread_t   si_thread;
-    bool        si_running;
 };
 
 struct lcap_ctx {

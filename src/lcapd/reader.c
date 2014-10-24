@@ -201,25 +201,25 @@ static int changelog_reader_loop(struct lcap_ctx *ctx, struct reader_env *env)
     return rc;
 }
 
-static inline bool reader_running(const struct wrk_args *wa)
+static inline bool reader_running(const struct subtask_args *sa)
 {
-    return wa->wa_ctx->cc_rdr_info[wa->wa_idx].si_running;
+    return sa->sa_ctx->cc_rdr_info[sa->sa_idx].si_running;
 }
 
 void *reader_main(void *args)
 {
-    struct wrk_args         *wa = (struct wrk_args *)args;
-    struct lcap_ctx         *ctx = wa->wa_ctx;
+    struct subtask_args     *sa = (struct subtask_args *)args;
+    struct lcap_ctx         *ctx = sa->sa_ctx;
     const struct lcap_cfg   *config = ctx_config(ctx);
     struct reader_env        env;
-    int                      reader_idx = wa->wa_idx;
+    int                      reader_idx = sa->sa_idx;
     int                      rc;
 
     rc = changelog_reader_init(ctx, reader_idx, &env);
     if (rc)
         return NULL;
 
-    while (reader_running(wa)) {
+    while (reader_running(sa)) {
         rc = changelog_reader_loop(ctx, &env);
         if (rc)
             break;

@@ -32,9 +32,15 @@ int lcap_cfg_release(struct lcap_cfg *config);
 int lcap_module_load_external(struct lcap_ctx *ctx, const char *modname);
 int lcap_module_unload_external(struct lcap_ctx *ctx);
 
-struct wrk_args {
-    struct lcap_ctx *wa_ctx;
-    int              wa_idx;
+
+struct subtask_info {
+    pthread_t   si_thread;
+    bool        si_running;
+};
+
+struct subtask_args {
+    struct lcap_ctx *sa_ctx;
+    unsigned int     sa_idx;
 };
 
 void *worker_main(void *args);

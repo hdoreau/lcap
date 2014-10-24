@@ -222,20 +222,20 @@ static int rpc_handler(struct wrk_env *env, const char *msg, size_t msg_size)
     return rc;
 }
 
-static inline bool worker_running(const struct wrk_args *wa)
+static inline bool worker_running(const struct subtask_args *sa)
 {
-    return wa->wa_ctx->cc_wrk_info[wa->wa_idx].si_running;
+    return sa->sa_ctx->cc_wrk_info[sa->sa_idx].si_running;
 }
 
 void *worker_main(void *args)
 {
-    struct wrk_env   env;
-    struct wrk_args *wa = (struct wrk_args *)args;
-    struct lcap_ctx *ctx = wa->wa_ctx;
-    void            *zctx = ctx->cc_zctx;
-    void            *zrcv = NULL;
-    char            *buff;
-    int              rc;
+    struct subtask_args *sa = (struct subtask_args *)args;
+    struct lcap_ctx     *ctx = sa->sa_ctx;
+    struct wrk_env       env;
+    void                *zctx = ctx->cc_zctx;
+    void                *zrcv = NULL;
+    char                *buff;
+    int                  rc;
 
     env.we_ctx  = ctx;
     env.we_mptr = NULL;
@@ -267,7 +267,7 @@ void *worker_main(void *args)
         goto out_free;
     }
 
-    while (worker_running(wa)) {
+    while (worker_running(sa)) {
         int     rcvd = 0;
         int     more = 0;
         size_t  more_len = sizeof(more);
