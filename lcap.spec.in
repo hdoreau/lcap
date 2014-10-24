@@ -1,0 +1,85 @@
+# LCAP specfile
+
+Name: @PACKAGE@
+Version: @VERSION@
+
+Vendor: CEA/DAM
+Prefix: %{_prefix}
+
+Release: @LCAP_RELEASE@%{?dist}
+
+Summary: lcap - Lustre Changelogs Aggregation and Publishing tool
+License: All rights reserved CEA/DAM
+Group: Applications/System
+Source0: @PACKAGE@-%{version}.tar.gz
+BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
+
+%description
+lcap proxifies lustre changelog distribution and offers ways to pre-process the
+records and distribute them efficiently over the network.
+
+Generated using options: @ac_configure_args@
+
+%package client
+Summary: LCAP changelog reading library
+Group: Applications/System
+
+%description client
+Exposes API to read lustre changelog either directly from lustre or via a lcapd
+server.
+
+%package devel
+Summary: Libraries and header files for the liblcap library
+Group: Applications/System
+
+%description devel
+Libraries, include files and other resources needed for developing liblcap
+applications.
+
+%package server
+Summary: main lcap daemon
+Group: Applications/System
+
+%description server
+Lustre ChangeLogs Aggregation and Publishing tool
+
+Generated using options: @ac_configure_args@
+
+%prep
+%setup -q -n @PACKAGE@-%{version}
+
+%build
+./configure @ac_configure_args@ %{?configure_flags:configure_flags} \
+        --sysconfdir=%{_sysconfdir} \
+        --mandir=%{_mandir} \
+        --libdir=%{_libdir} \
+        --includedir=%{_includedir} \
+        --prefix=%{_prefix}
+        
+make
+
+%install
+rm -rf $RPM_BUILD_ROOT
+mkdir -p $RPM_BUILD_ROOT
+make install DESTDIR=$RPM_BUILD_ROOT
+
+%clean
+rm -rf $RPM_BUILD_ROOT
+
+%files client
+%{_libdir}/liblcap.*
+
+%files devel
+%{_libdir}/liblcap.*
+%{_includedir}/*.h
+
+%files server
+%{_includedir}/*.h
+%{_sbindir}/*
+%{_libdir}/*
+#%config(noreplace) %{_sysconfdir}/lcap.cfg
+
+%changelog
+
+* Wed Oct 23 2014 Henri Doreau <henri.doreau@cea.fr> 0.1
+- Initial import

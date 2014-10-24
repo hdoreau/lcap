@@ -1,0 +1,29 @@
+== License ==
+
+Copyright (C) CEA/DAM 2014
+
+The source code for this software can be freely distributed under the terms of
+the GNU LGPLv3 license or, at your option, any later version.
+
+http://www.gnu.org/licenses/lgpl-3.0.txt
+
+
+== Presentation ==
+Lustre Changelog Aggregate & Publish is a lustre changelog proxy that allows
+to pre-process and distribute lustre changelog streams to multiple consumers.
+Typically, it permits distributed processing of the stream. Dedicated modules
+can additionally pre-process the stream in order to reorder or filter out
+records to best match what the end-process expects.
+
+== Build ==
+
+Besides a regular libc, LCAP depends on the following libraries:
+  - libzmq (lzmq)
+  - liblustreapi (llustreapi)
+
+  +sh autogen.s+
+  +./configure.sh+
+  +make+
+
+or optionally:
+  +make rpms+
