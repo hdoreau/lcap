@@ -1,7 +1,6 @@
 LCAP
 ----
 
-
 LCAP stands for "Lustre Changelog Aggregate and Publish"
 
 It consists in a core daemon (lcapd), a client library and a serie of
@@ -12,8 +11,30 @@ to its clients.
 
 Installation
 ------------
+
+Building lcap is relatively straightforward:
+
   $ ./configure
-  $ make rpms
+  $ make
+
+The "rpms" target allows to build RPM packages (client, server, devel). Please
+note that the existing code has been developed and tested under x86_64 only.
+
+
+Running lcap
+------------
+
+Lcap comes with a testing tool suprisingly called `lcap' and wich simply reads
+changelog records, similarly to what `lfs changelog'.
+
+The client and the server can be started in any order. Whoever is started first
+will wait for the other one to get online.
+
+The lcapd server needs a configuration file. It will look for one at
+/etc/lcapd.conf
+This location can be overriden by using `-c' when running the server.
+
+  $ lcapd -c /etc/lcapd.conf
 
 
 Contact
