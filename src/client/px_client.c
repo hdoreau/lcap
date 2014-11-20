@@ -262,158 +262,158 @@ changelog_rec_next(lcap_chlg_t rec)
 }
 
 #define RECV_BUFFER_LENGTH  4096
-    static int px_dequeue_records(struct px_zmq_data *pzd)
-    {
-        char                    *buff;
-        struct px_rpc_dequeue    rpc;
-        struct px_rpc_hdr       *rep_hdr;
-        int                      rc;
-        int                      rcvd = 0;
+static int px_dequeue_records(struct px_zmq_data *pzd)
+{
+    char                    *buff;
+    struct px_rpc_dequeue    rpc;
+    struct px_rpc_hdr       *rep_hdr;
+    int                      rc;
+    int                      rcvd = 0;
 
-        rc = cl_dequeue_pack(&rpc, &pzd->cl_id);
-        if (rc < 0)
-            return rc;
+    rc = cl_dequeue_pack(&rpc, &pzd->cl_id);
+    if (rc < 0)
+        return rc;
 
-        rc = zmq_send(pzd->zmq_srv, &rpc, sizeof(rpc), 0);
-        if (rc < 0) {
-            rc = -errno;
-            return rc;
-        }
+    rc = zmq_send(pzd->zmq_srv, &rpc, sizeof(rpc), 0);
+    if (rc < 0) {
+        rc = -errno;
+        return rc;
+    }
 
-        buff = (char *)calloc(1, RECV_BUFFER_LENGTH);
-        if (buff == NULL)
-            return -ENOMEM;
+    buff = (char *)calloc(1, RECV_BUFFER_LENGTH);
+    if (buff == NULL)
+        return -ENOMEM;
 
-        rc = cl_rep_recv(pzd, buff, RECV_BUFFER_LENGTH);
-        if (rc < 0)
-            goto out_free;
+    rc = cl_rep_recv(pzd, buff, RECV_BUFFER_LENGTH);
+    if (rc < 0)
+        goto out_free;
 
-        rcvd = rc;
-        rc = 0;
+    rcvd = rc;
+    rc = 0;
 
-        rep_hdr = (struct px_rpc_hdr *)buff;
-        if (rcvd < sizeof(*rep_hdr)) {
-            rc = -EINVAL;
-            goto out_free;
-        }
+    rep_hdr = (struct px_rpc_hdr *)buff;
+    if (rcvd < sizeof(*rep_hdr)) {
+        rc = -EINVAL;
+        goto out_free;
+    }
 
-        switch (rep_hdr->op_type) {
-            case RPC_OP_ACK: {
-                struct px_rpc_ack   *rep_ack;
+    switch (rep_hdr->op_type) {
+        case RPC_OP_ACK: {
+            struct px_rpc_ack   *rep_ack;
 
-                rep_ack = (struct px_rpc_ack *)buff;
-                if (rcvd < sizeof(*rep_ack)) {
-                    rc = -EINVAL;
-                    goto out_free;
-                }
-                rc = rep_ack->pr_retcode;
-                break;
-            }
-
-            case RPC_OP_ENQUEUE: {
-                struct px_rpc_enqueue   *rep_enq;
-                lcap_chlg_t              rec_iter;
-                int                      i;
-
-                rep_enq = (struct px_rpc_enqueue *)buff;
-                if (rcvd < (sizeof(*rep_enq) +
-                            sizeof(*rec_iter))) {
-                    rc = -EINVAL;
-                    goto out_free;
-                }
-
-                rec_iter = (lcap_chlg_t )rep_enq->pr_records;
-                for (i = 0; i < rep_enq->pr_count; i++) {
-                    size_t rec_size = sizeof(*rec_iter) + rec_iter->cr_namelen;
-
-                    pzd->records[i] = (lcap_chlg_t )malloc(rec_size);
-                    memcpy(pzd->records[i], rec_iter, rec_size);
-                    rec_iter = changelog_rec_next(rec_iter);
-                }
-                pzd->rec_nxt = 0;
-                pzd->rec_cnt = i;
-                free(buff);
-                rc = 0;
-                break;
-            }
-
-            default:
-                rc = -EPROTO;
+            rep_ack = (struct px_rpc_ack *)buff;
+            if (rcvd < sizeof(*rep_ack)) {
+                rc = -EINVAL;
                 goto out_free;
+            }
+            rc = rep_ack->pr_retcode;
+            break;
         }
 
-    out_free:
-        if (rc)
+        case RPC_OP_ENQUEUE: {
+            struct px_rpc_enqueue   *rep_enq;
+            lcap_chlg_t              rec_iter;
+            int                      i;
+
+            rep_enq = (struct px_rpc_enqueue *)buff;
+            if (rcvd < (sizeof(*rep_enq) +
+                        sizeof(*rec_iter))) {
+                rc = -EINVAL;
+                goto out_free;
+            }
+
+            rec_iter = (lcap_chlg_t )rep_enq->pr_records;
+            for (i = 0; i < rep_enq->pr_count; i++) {
+                size_t rec_size = sizeof(*rec_iter) + rec_iter->cr_namelen;
+
+                pzd->records[i] = (lcap_chlg_t )malloc(rec_size);
+                memcpy(pzd->records[i], rec_iter, rec_size);
+                rec_iter = changelog_rec_next(rec_iter);
+            }
+            pzd->rec_nxt = 0;
+            pzd->rec_cnt = i;
             free(buff);
-
-        return rc;
-    }
-
-    static int px_changelog_recv(struct lcap_cl_ctx *ctx,
-                                 lcap_chlg_t *rec)
-    {
-        struct px_zmq_data  *pzd = (struct px_zmq_data *)ctx->ccc_ptr;
-        int                  rc;
-
-        if (pzd->rec_nxt == pzd->rec_cnt) {
-            rc = px_dequeue_records(pzd);
-            if (rc != 0)
-                return rc; /* <0 or >0 are both possible */
+            rc = 0;
+            break;
         }
 
-        *rec = pzd->records[pzd->rec_nxt++];
-        return 0;
-    }
-
-
-    static int px_changelog_free(struct lcap_cl_ctx *ctx,
-                                 lcap_chlg_t *rec)
-    {
-        free(*rec);
-        *rec = NULL;
-        return 0;
-    }
-
-    static int px_changelog_clear(struct lcap_cl_ctx *ctx, const char *mdtname,
-                                  const char *id, long long endrec)
-    {
-        struct px_zmq_data  *pzd = (struct px_zmq_data *)ctx->ccc_ptr;
-        struct px_rpc_clear *rpc;
-        size_t               id_len;
-        size_t               name_len;
-        size_t               rpc_len;
-        int                  rc;
-
-        id_len = strlen(id);
-        name_len = strlen(mdtname);
-
-        rpc_len = sizeof(*rpc) + id_len + name_len + 2;
-        rpc = (struct px_rpc_clear *)calloc(1, rpc_len);
-        if (rpc == NULL)
-            return -ENOMEM;
-
-        rc = cl_clear_pack(rpc, mdtname, id, endrec, &pzd->cl_id);
-        if (rc)
+        default:
+            rc = -EPROTO;
             goto out_free;
-
-        rc = zmq_send(pzd->zmq_srv, rpc, rpc_len, 0);
-        if (rc < 0) {
-            rc = -errno;
-            goto out_free;
-        }
-
-        rc = cl_ack_retcode(pzd);
-
-    out_free:
-        free(rpc);
-
-        return rc;
     }
 
-    struct lcap_cl_operations cl_ops_proxy = {
-        .cco_start  = px_changelog_start,
-        .cco_fini   = px_changelog_fini,
-        .cco_recv   = px_changelog_recv,
-        .cco_free   = px_changelog_free,
-        .cco_clear  = px_changelog_clear
-    };
+out_free:
+    if (rc)
+        free(buff);
+
+    return rc;
+}
+
+static int px_changelog_recv(struct lcap_cl_ctx *ctx,
+                             lcap_chlg_t *rec)
+{
+    struct px_zmq_data  *pzd = (struct px_zmq_data *)ctx->ccc_ptr;
+    int                  rc;
+
+    if (pzd->rec_nxt == pzd->rec_cnt) {
+        rc = px_dequeue_records(pzd);
+        if (rc != 0)
+            return rc; /* <0 or >0 are both possible */
+    }
+
+    *rec = pzd->records[pzd->rec_nxt++];
+    return 0;
+}
+
+
+static int px_changelog_free(struct lcap_cl_ctx *ctx,
+                             lcap_chlg_t *rec)
+{
+    free(*rec);
+    *rec = NULL;
+    return 0;
+}
+
+static int px_changelog_clear(struct lcap_cl_ctx *ctx, const char *mdtname,
+                              const char *id, long long endrec)
+{
+    struct px_zmq_data  *pzd = (struct px_zmq_data *)ctx->ccc_ptr;
+    struct px_rpc_clear *rpc;
+    size_t               id_len;
+    size_t               name_len;
+    size_t               rpc_len;
+    int                  rc;
+
+    id_len = strlen(id);
+    name_len = strlen(mdtname);
+
+    rpc_len = sizeof(*rpc) + id_len + name_len + 2;
+    rpc = (struct px_rpc_clear *)calloc(1, rpc_len);
+    if (rpc == NULL)
+        return -ENOMEM;
+
+    rc = cl_clear_pack(rpc, mdtname, id, endrec, &pzd->cl_id);
+    if (rc)
+        goto out_free;
+
+    rc = zmq_send(pzd->zmq_srv, rpc, rpc_len, 0);
+    if (rc < 0) {
+        rc = -errno;
+        goto out_free;
+    }
+
+    rc = cl_ack_retcode(pzd);
+
+out_free:
+    free(rpc);
+
+    return rc;
+}
+
+struct lcap_cl_operations cl_ops_proxy = {
+    .cco_start  = px_changelog_start,
+    .cco_fini   = px_changelog_fini,
+    .cco_recv   = px_changelog_recv,
+    .cco_free   = px_changelog_free,
+    .cco_clear  = px_changelog_clear
+};
