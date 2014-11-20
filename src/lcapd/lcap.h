@@ -54,9 +54,9 @@ struct lcap_procmod_operations {
     int (*cpo_init)(struct lcap_ctx *ctx, void **mod_data);
     int (*cpo_destroy)(struct lcap_ctx *ctx, void *mod_data);
     int (*cpo_rec_enqueue)(struct lcap_ctx *ctx, void *mod_data,
-                           const struct changelog_ext_rec *rec);
+                           const lcap_chlg_t rec);
     int (*cpo_rec_dequeue)(struct lcap_ctx *ctx, void *mod_data,
-                           struct changelog_ext_rec **rec);
+                           lcap_chlg_t *rec);
     int (*cpo_set_ack)(struct lcap_ctx *ctx, void *mod_data,
                        const struct client_id *id, const char *device,
                        long long recno);

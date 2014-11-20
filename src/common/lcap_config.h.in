@@ -1,5 +1,8 @@
 /* src/common/lcap_config.h.in.  Generated from configure.ac by autoheader.  */
 
+/* struct changelog_ext_jobid is defined */
+#undef HAVE_CHANGELOG_EXT_JOBID
+
 /* Define to 1 if you have the <dlfcn.h> header file. */
 #undef HAVE_DLFCN_H
 

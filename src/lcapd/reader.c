@@ -157,15 +157,19 @@ static int changelog_reader_release(struct reader_env *env)
 
 static int changelog_reader_loop(struct lcap_ctx *ctx, struct reader_env *env)
 {
-    void                        *clprivate;
-    const char                  *device = reader_device(env);
-    struct changelog_ext_rec    *rec;
-    struct px_rpc_enqueue        hdr;
-    int                          flags = CHANGELOG_FLAG_BLOCK;
-    int                          rc;
+    void                    *clprivate;
+    const char              *device = reader_device(env);
+    lcap_chlg_t              rec;
+    struct px_rpc_enqueue    hdr;
+    int                      flags = CHANGELOG_FLAG_BLOCK;
+    int                      rc;
 
     hdr.pr_hdr.op_type = RPC_OP_ENQUEUE;
     hdr.pr_count       = 1;
+
+#if HAVE_CHANGELOG_EXT_JOBID
+    flags |= CHANGELOG_FLAG_JOBID;
+#endif
 
     rc = llapi_changelog_start(&clprivate, flags, device, env->re_srec);
     if (rc) {

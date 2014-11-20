@@ -47,13 +47,13 @@ void static usage(void)
 
 int main(int ac, char **av)
 {
-    struct lcap_cl_ctx          *ctx = NULL;
-    struct changelog_ext_rec    *rec;
-    const char                  *mdtname = NULL;
-    int                          flags = LCAP_CL_BLOCK;
-    int                          c;
-    int                          rc;
-    long long                    last_idx = 0;
+    struct lcap_cl_ctx  *ctx = NULL;
+    const char          *mdtname = NULL;
+    lcap_chlg_t          rec;
+    int                  flags = LCAP_CL_BLOCK;
+    int                  c;
+    int                  rc;
+    long long            last_idx = 0;
 
     if (ac < 2) {
         usage();
@@ -105,12 +105,17 @@ int main(int ac, char **av)
 
         if (rec->cr_namelen)
             printf(" p="DFID" %.*s", PFID(&rec->cr_pfid), rec->cr_namelen,
-                   rec->cr_name);
+                   changelog_rec_name(rec));
 
+        if (rec->cr_flags & CLF_JOBID)
+            printf(" j=%s", (const char *)changelog_rec_jobid(rec));
+
+        /*
         if (!fid_is_zero(&rec->cr_sfid))
             printf(" s="DFID" sp="DFID" %.*s", PFID(&rec->cr_sfid),
                    PFID(&rec->cr_spfid), changelog_rec_snamelen(rec),
                    changelog_rec_sname(rec));
+        */
 
         printf("\n");
 

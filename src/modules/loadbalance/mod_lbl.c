@@ -125,16 +125,14 @@ int lcap_module_destroy(struct lcap_ctx *ctx, void *mdata)
     return 0;
 }
 
-int lcap_module_rec_enqueue(struct lcap_ctx *ctx, void *mdata,
-                            struct changelog_ext_rec *rec)
+int lcap_module_rec_enqueue(struct lcap_ctx *ctx, void *mdata, lcap_chlg_t rec)
 {
     lcaplog_all("Enqueuing record #%llu", rec->cr_index);
     pqueue_push(entries, rec);
     return 0;
 }
 
-int lcap_module_rec_dequeue(struct lcap_ctx *ctx, void *mdata,
-                            struct changelog_ext_rec **rec)
+int lcap_module_rec_dequeue(struct lcap_ctx *ctx, void *mdata, lcap_chlg_t *rec)
 {
     *rec = pqueue_pop(entries);
     if (*rec == NULL)

@@ -121,14 +121,13 @@ static int ack_retcode(struct wrk_env *env, int retcode)
 
 static int ack_send_records(struct wrk_env *env)
 {
-    const struct lcap_cfg        *cfg = ctx_config(env->we_ctx);
-    struct px_rpc_enqueue         reply;
-    struct changelog_ext_rec    **rec;
-    int                           i, j;
-    int                           rc;
+    const struct lcap_cfg   *cfg = ctx_config(env->we_ctx);
+    struct px_rpc_enqueue    reply;
+    lcap_chlg_t             *rec;
+    int                      i, j;
+    int                      rc;
 
-    rec = (struct changelog_ext_rec **)calloc(cfg->ccf_rec_batch_count,
-                                              sizeof(*rec));
+    rec = (lcap_chlg_t *)calloc(cfg->ccf_rec_batch_count, sizeof(rec));
     if (rec == NULL) {
         rc = -ENOMEM;
         lcaplog_err("Cannot allocate memory for record batch: %s", strerror(-rc));
@@ -159,7 +158,7 @@ static int ack_send_records(struct wrk_env *env)
     }
 
     for (j = 0; j < i; j++) {
-        struct changelog_ext_rec    *record = rec[j];
+        lcap_chlg_t record = rec[j];
 
         rc = zmq_send(env->we_sock,
                       record,

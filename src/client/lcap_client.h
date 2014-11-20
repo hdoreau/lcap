@@ -28,6 +28,9 @@
 
 #include <lustre/lustreapi.h>
 
+#include <lcap_idl.h>
+
+
 /* Map to FLAG_FOLLOW (not implemented in lustre as of now) */
 #define LCAP_CL_FOLLOW  (0x01 << 0)
 
@@ -37,14 +40,17 @@
 /* NULL-channel, get records directly from Lustre */
 #define LCAP_CL_DIRECT  (0x01 << 2)
 
+/* Include (possibly empty) jobid record extension */
+#define LCAP_CL_JOBID   (0x01 << 3)
+
 struct lcap_cl_ctx;
 
 struct lcap_cl_operations {
     int (*cco_start)(struct lcap_cl_ctx *ctx, int flags, const char *mdtname,
                      long long startrec);
     int (*cco_fini)(struct lcap_cl_ctx *ctx);
-    int (*cco_recv)(struct lcap_cl_ctx *ctx, struct changelog_ext_rec **rec);
-    int (*cco_free)(struct lcap_cl_ctx *ctx, struct changelog_ext_rec **rec);
+    int (*cco_recv)(struct lcap_cl_ctx *ctx, lcap_chlg_t *rec);
+    int (*cco_free)(struct lcap_cl_ctx *ctx, lcap_chlg_t *rec);
     int (*cco_clear)(struct lcap_cl_ctx *ctx, const char *mdtname,
                      const char *id, long long endrec);
 };
@@ -101,7 +107,7 @@ static inline int lcap_changelog_fini(struct lcap_cl_ctx *ctx)
  * \retval Appropriate negative error code on failure
  */
 static inline int lcap_changelog_recv(struct lcap_cl_ctx *ctx,
-                                      struct changelog_ext_rec **rec)
+                                      lcap_chlg_t *rec)
 {
     assert(ctx);
     assert(ctx->ccc_ops);
@@ -120,7 +126,7 @@ static inline int lcap_changelog_recv(struct lcap_cl_ctx *ctx,
  * \retval Appropriate negative error code on failure
  */
 static inline int lcap_changelog_free(struct lcap_cl_ctx *ctx,
-                                      struct changelog_ext_rec **rec)
+                                      lcap_chlg_t *rec)
 {
     assert(ctx);
     assert(ctx->ccc_ops);

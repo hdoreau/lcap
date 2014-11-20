@@ -51,7 +51,7 @@ static inline int cpm_destroy(struct lcap_ctx *ctx, void *mod_private)
 }
 
 static inline int cpm_rec_enqueue(struct lcap_ctx *ctx, void *mod_private,
-                                  struct changelog_ext_rec *rec)
+                                  lcap_chlg_t rec)
 {
     struct lcap_proc_module *cpm;
 
@@ -60,7 +60,7 @@ static inline int cpm_rec_enqueue(struct lcap_ctx *ctx, void *mod_private,
 }
 
 static inline int cpm_rec_dequeue(struct lcap_ctx *ctx, void *mod_private,
-                                  struct changelog_ext_rec **rec)
+                                  lcap_chlg_t *rec)
 {
     struct lcap_proc_module *cpm;
 

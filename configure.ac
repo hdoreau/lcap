@@ -3,7 +3,7 @@
 
 AC_PREREQ([2.59])
 AC_INIT([lcap], [0.1], [henri.doreau@cea.fr])
-LCAP_RELEASE="1"
+LCAP_RELEASE="3"
 
 #AM_PROG_AR
 AC_CONFIG_AUX_DIR([.autotools])
@@ -34,6 +34,16 @@ AC_SUBST(lcap_lib_version)
 AC_CHECK_HEADERS([fcntl.h stdlib.h string.h sys/ioctl.h syslog.h unistd.h])
 AC_CHECK_HEADER([zmq.h], , AC_MSG_ERROR([libzmq-devel is required]))
 #AC_CHECK_HEADER([lustreapi.h], , AC_MSG_ERROR([liblustreapi is required]))
+
+AC_CHECK_TYPE(struct changelog_ext_jobid, [have_changelog_ext_jobid="yes"],
+              [have_changelog_ext_jobid="no"],
+              [
+              #define LPX64 "%#llx"
+              #include <sys/types.h>
+              #include <asm/types.h>
+              #include <lustre/lustre_user.h>
+])
+test "x$have_changelog_ext_jobid" = "xyes" && AC_DEFINE(HAVE_CHANGELOG_EXT_JOBID, 1, [struct changelog_ext_jobid is defined])
 
 # Checks for typedefs, structures, and compiler characteristics.
 AC_C_INLINE

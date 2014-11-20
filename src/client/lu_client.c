@@ -34,6 +34,9 @@ static int flags_translate(int lcap_flags)
     if (lcap_flags & LCAP_CL_BLOCK)
         lu_flags |= CHANGELOG_FLAG_BLOCK;
 
+    if (lcap_flags & LCAP_CL_JOBID)
+        lu_flags |= CHANGELOG_FLAG_JOBID;
+
     return lu_flags;
 }
 
@@ -52,13 +55,13 @@ static int lu_changelog_fini(struct lcap_cl_ctx *ctx)
 }
 
 static int lu_changelog_recv(struct lcap_cl_ctx *ctx,
-                             struct changelog_ext_rec **rec)
+                             lcap_chlg_t *rec)
 {
     return llapi_changelog_recv(ctx->ccc_ptr, rec);
 }
 
 static int lu_changelog_free(struct lcap_cl_ctx *ctx,
-                             struct changelog_ext_rec **rec)
+                             lcap_chlg_t *rec)
 {
     return llapi_changelog_free(rec);
 }

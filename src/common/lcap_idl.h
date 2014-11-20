@@ -23,8 +23,28 @@
 #ifndef LCAP_IDL_H
 #define LCAP_IDL_H
 
+#if HAVE_CONFIG_H
+#include "lcap_config.h"
+#endif
+
 #include <string.h>
 #include <stdint.h>
+
+
+/**
+ * With lustre 2.7, and LU-1996 in peculiar, the changelog API only deals
+ * with struct changelog_record, though binary compatibility is preserved.
+ *
+ * Check whether the CLF_JOBID flag exists to determine how to manipulate
+ * records.
+ */
+#ifdef HAVE_CHANGELOG_EXT_JOBID
+typedef struct changelog_rec        *lcap_chlg_t;
+#else
+typedef struct changelog_ext_rec    *lcap_chlg_t;
+#endif
+
+
 
 enum rpc_op_type {
     /* Changelog reader */

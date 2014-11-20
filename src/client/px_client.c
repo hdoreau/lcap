@@ -30,18 +30,17 @@
 #define DEFAULT_CACHE_SIZE  256
 
 #include <lcap_client.h>
-#include <lcap_idl.h>
 
 #include <stdlib.h>
 #include <zmq.h>
 
 struct px_zmq_data {
-    struct client_id          cl_id;    /**< lcapd will name us */
-    void                     *zmq_ctx;  /**< 0MQ context */
-    void                     *zmq_srv;  /**< Socket to server */
-    struct changelog_ext_rec    **records;  /**< Undelivered (cached) records */
-    unsigned int              rec_nxt;  /**< Next record to read */
-    unsigned int              rec_cnt;  /**< High watermark */
+    struct client_id      cl_id;    /**< lcapd will name us */
+    void                 *zmq_ctx;  /**< 0MQ context */
+    void                 *zmq_srv;  /**< Socket to server */
+    lcap_chlg_t          *records;  /**< Undelivered (cached) records */
+    unsigned int          rec_nxt;  /**< Next record to read */
+    unsigned int          rec_cnt;  /**< High watermark */
 };
 
 static int pzd_destroy(struct px_zmq_data *pzd)
@@ -61,8 +60,8 @@ static int pzd_destroy(struct px_zmq_data *pzd)
 
 static int pzd_cache_grow(struct px_zmq_data *pzd, size_t newsize)
 {
-    newsize *= sizeof(struct changelog_ext_rec *);
-    pzd->records = (struct changelog_ext_rec **)realloc(pzd->records, newsize);
+    newsize *= sizeof(lcap_chlg_t );
+    pzd->records = (lcap_chlg_t *)realloc(pzd->records, newsize);
     if (pzd->records == NULL)
         return -ENOMEM;
 
@@ -256,10 +255,10 @@ static int cl_ack_retcode(struct px_zmq_data *pzd)
     return rep_ack.pr_retcode;
 }
 
-static inline struct changelog_ext_rec *
-changelog_rec_next(struct changelog_ext_rec *rec)
+static inline lcap_chlg_t 
+changelog_rec_next(lcap_chlg_t rec)
 {
-    return (struct changelog_ext_rec *)(rec->cr_name + rec->cr_namelen);
+    return (lcap_chlg_t)(changelog_rec_name(rec) + rec->cr_namelen);
 }
 
 #define RECV_BUFFER_LENGTH  4096
@@ -313,21 +312,21 @@ changelog_rec_next(struct changelog_ext_rec *rec)
 
             case RPC_OP_ENQUEUE: {
                 struct px_rpc_enqueue   *rep_enq;
-                struct changelog_ext_rec    *rec_iter;
-                int                          i;
+                lcap_chlg_t              rec_iter;
+                int                      i;
 
                 rep_enq = (struct px_rpc_enqueue *)buff;
                 if (rcvd < (sizeof(*rep_enq) +
-                            sizeof(struct changelog_ext_rec))) {
+                            sizeof(*rec_iter))) {
                     rc = -EINVAL;
                     goto out_free;
                 }
 
-                rec_iter = (struct changelog_ext_rec *)rep_enq->pr_records;
+                rec_iter = (lcap_chlg_t )rep_enq->pr_records;
                 for (i = 0; i < rep_enq->pr_count; i++) {
                     size_t rec_size = sizeof(*rec_iter) + rec_iter->cr_namelen;
 
-                    pzd->records[i] = (struct changelog_ext_rec *)malloc(rec_size);
+                    pzd->records[i] = (lcap_chlg_t )malloc(rec_size);
                     memcpy(pzd->records[i], rec_iter, rec_size);
                     rec_iter = changelog_rec_next(rec_iter);
                 }
@@ -351,7 +350,7 @@ changelog_rec_next(struct changelog_ext_rec *rec)
     }
 
     static int px_changelog_recv(struct lcap_cl_ctx *ctx,
-                                 struct changelog_ext_rec **rec)
+                                 lcap_chlg_t *rec)
     {
         struct px_zmq_data  *pzd = (struct px_zmq_data *)ctx->ccc_ptr;
         int                  rc;
@@ -368,7 +367,7 @@ changelog_rec_next(struct changelog_ext_rec *rec)
 
 
     static int px_changelog_free(struct lcap_cl_ctx *ctx,
-                                 struct changelog_ext_rec **rec)
+                                 lcap_chlg_t *rec)
     {
         free(*rec);
         *rec = NULL;
