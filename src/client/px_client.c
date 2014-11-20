@@ -280,7 +280,7 @@ static int px_dequeue_records(struct px_zmq_data *pzd)
         return rc;
     }
 
-    buff = (char *)calloc(1, RECV_BUFFER_LENGTH);
+    buff = (char *)malloc(RECV_BUFFER_LENGTH);
     if (buff == NULL)
         return -ENOMEM;
 
@@ -327,6 +327,10 @@ static int px_dequeue_records(struct px_zmq_data *pzd)
                 size_t rec_size = sizeof(*rec_iter) + rec_iter->cr_namelen;
 
                 pzd->records[i] = (lcap_chlg_t )malloc(rec_size);
+                if (pzd->records[i] == NULL) {
+                    rc = -ENOMEM;
+                    goto out_free;
+                }
                 memcpy(pzd->records[i], rec_iter, rec_size);
                 rec_iter = changelog_rec_next(rec_iter);
             }
