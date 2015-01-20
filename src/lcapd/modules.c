@@ -38,7 +38,7 @@ static int __mod_symbol(struct lcap_ctx *ctx, void *dlhandle,
     *sym = dlsym(dlhandle, symname);
     errstr = dlerror();
     if (errstr) {
-        lcaplog_err("Can't load symbol %s: %s", symname, errstr);
+        lcap_error("Can't load symbol %s: %s", symname, errstr);
         *sym = NULL;
         return -EINVAL;
     }
@@ -101,16 +101,16 @@ int lcap_module_load_external(struct lcap_ctx *ctx)
     void        *dlhandle;
     int          rc;
 
-    lcaplog_dbg("Loading module from %s", modname);
+    lcap_verb("Loading module from %s", modname);
 
     if (ctx->cc_loaded) {
-        lcaplog_err("Module already loaded");
+        lcap_error("Module already loaded");
         return -EALREADY;
     }
 
     dlhandle = dlopen(modname, RTLD_NOW);
     if (!dlhandle) {
-        lcaplog_err("dlopen() failure: %s", dlerror());
+        lcap_error("dlopen() failure: %s", dlerror());
         return -EINVAL;
     }
 
@@ -118,7 +118,7 @@ int lcap_module_load_external(struct lcap_ctx *ctx)
     if (rc)
         goto err_cleanup;
 
-    lcaplog_nfo("Module %s loaded from %s", ctx->cc_module.cpm_name, modname);
+    lcap_info("Module %s loaded from %s", ctx->cc_module.cpm_name, modname);
     ctx->cc_loaded = true;
 
     return 0;
@@ -133,16 +133,16 @@ int lcap_module_unload_external(struct lcap_ctx *ctx)
     const char *modname = ctx->cc_config->ccf_module;
 
     if (!ctx->cc_loaded) {
-        lcaplog_all("No module loaded");
+        lcap_debug("No module loaded");
         return 0;
     }
 
-    lcaplog_dbg("Unloading module %s", modname);
+    lcap_verb("Unloading module %s", modname);
 
     dlclose(ctx->cc_module.cpm_dlh);
     memset(&ctx->cc_module, 0x00, sizeof(ctx->cc_module));
 
-    lcaplog_all("Module %s successfully freed", modname);
+    lcap_debug("Module %s successfully freed", modname);
     ctx->cc_loaded = false;
 
     return 0;

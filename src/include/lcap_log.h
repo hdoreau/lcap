@@ -30,17 +30,28 @@
 /* Logging-related data structures */
 
 typedef enum {
-    LCAPLOG_ALL,
-    LCAPLOG_DBG,
-    LCAPLOG_NFO,
-    LCAPLOG_ERR
+    LCAPLOG_DBG = 1,
+    LCAPLOG_VRB = 2,
+    LCAPLOG_NFO = 3,
+    LCAPLOG_ERR = 4,
+
+    /* Special values */
+    LCAPLOG_OFF = 5,
+    LCAPLOG_MIN = LCAPLOG_DBG,
 } lcap_loglevel_t;
 
 
+/**
+ * Global process loglevel
+ */
 extern lcap_loglevel_t CurrentLogLevel;
 
-
-#define LCAP_LOG_WRAP(lvl, ...)  \
+/**
+ * Generate a log record, according to the current log level.
+ * Not for direct use. Use the lcap_{debug,verb,info,error}
+ * macros below.
+ */
+#define __LCAP_LOG_WRAP(lvl, ...)  \
     do { \
         if ((lvl) >= CurrentLogLevel) { \
             __lcap_log_internal((lvl), __FILE__, __LINE__, __func__, \
@@ -49,23 +60,30 @@ extern lcap_loglevel_t CurrentLogLevel;
     } while (0)
 
 
-#define lcaplog_all(...) LCAP_LOG_WRAP(LCAPLOG_ALL, __VA_ARGS__)
+/* Internal function, not for direct use */
+void __lcap_log_internal(lcap_loglevel_t loglevel, const char *file, int line,
+                         const char *func, const char *format, ...)
+                         __attribute__((format (printf, 5, 6)));
 
-#define lcaplog_dbg(...)  LCAP_LOG_WRAP(LCAPLOG_DBG, __VA_ARGS__)
 
-#define lcaplog_nfo(...)  LCAP_LOG_WRAP(LCAPLOG_NFO, __VA_ARGS__)
+/* Public macros, for actual use in code */
+#define lcap_debug(...) __LCAP_LOG_WRAP(LCAPLOG_DBG, __VA_ARGS__)
 
-#define lcaplog_err(...)  LCAP_LOG_WRAP(LCAPLOG_ERR, __VA_ARGS__)
+#define lcap_verb(...)  __LCAP_LOG_WRAP(LCAPLOG_VRB, __VA_ARGS__)
+
+#define lcap_info(...)  __LCAP_LOG_WRAP(LCAPLOG_NFO, __VA_ARGS__)
+
+#define lcap_error(...) __LCAP_LOG_WRAP(LCAPLOG_ERR, __VA_ARGS__)
 
 
 static inline const char *loglevel2str(lcap_loglevel_t loglevel)
 {
     switch (loglevel) {
-        case LCAPLOG_ALL:
-            return "FULL";
-
         case LCAPLOG_DBG:
             return "DEBUG";
+
+        case LCAPLOG_VRB:
+            return "VERBOSE";
 
         case LCAPLOG_NFO:
             return "INFO";
@@ -78,15 +96,34 @@ static inline const char *loglevel2str(lcap_loglevel_t loglevel)
     }
 }
 
+/**
+ * Initialize the logging infrastructure. This should be invoked after a
+ * logging infrastructure has been set (see lcap_set_logger).
+ *
+ * Returns 0 on success and a negative error code on failure.
+ */
 int lcap_log_open(void);
+
+/**
+ * Release resources were taken in lcap_log_open, if any.
+ *
+ * Returns 0 on success and a negative error code on failure.
+ */
 int lcap_log_close(void);
 
-void __lcap_log_internal(lcap_loglevel_t loglevel, const char *file, int line,
-                         const char *func, const char *format, ...)
-                         __attribute__((format (printf, 5, 6)));
-
+/**
+ * Adjust current log level.
+ */
 void lcap_set_loglevel(int verbosity);
+
+/**
+ * Get current log level.
+ */
 int lcap_get_loglevel(void);
+
+/**
+ * Register a new logger. Valid ones include "stderr" and "syslog".
+ */
 int lcap_set_logger(const char *logger_name);
 
 #endif /* LCAPLOG_H */

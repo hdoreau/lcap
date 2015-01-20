@@ -32,7 +32,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include "lcaplog.h"
+#include "lcap_log.h"
 
 
 struct lcap_log_rec {
@@ -113,10 +113,10 @@ static inline int lcaplevel2syslog(lcap_loglevel_t level)
             return LOG_ERR;
 
         case LCAPLOG_NFO:
+        case LCAPLOG_VRB:
             return LOG_NOTICE;
 
         case LCAPLOG_DBG:
-        case LCAPLOG_ALL:
             return LOG_DEBUG;
 
         default:
@@ -229,11 +229,11 @@ void lcap_set_loglevel(int verbosity)
             break;
 
         case 2:
-            CurrentLogLevel = LCAPLOG_DBG;
+            CurrentLogLevel = LCAPLOG_VRB;
             break;
 
         default:
-            CurrentLogLevel = LCAPLOG_ALL;
+            CurrentLogLevel = LCAPLOG_DBG;
             break;
     }
 }

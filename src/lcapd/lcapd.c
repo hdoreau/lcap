@@ -62,61 +62,34 @@ static int lcap_subtask(struct lcap_ctx *ctx, int idx,
 
     rc = pthread_attr_init(&attr);
     if (rc) {
-        lcaplog_err("Error initializing thread attr: %s", strerror(rc));
+        lcap_error("Error initializing thread attr: %s", strerror(rc));
         return -rc;
     }
 
     rc = pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
     if (rc) {
-        lcaplog_err("Error setting thread state: %s", strerror(rc));
+        lcap_error("Error setting thread state: %s", strerror(rc));
         return -rc;
     }
 
     args = (struct subtask_args *)malloc(sizeof(*args));
     if (args == NULL) {
-        lcaplog_err("Cannot allocate memory for subtask parameters");
+        lcap_error("Cannot allocate memory for subtask parameters");
         return -ENOMEM;
     }
 
-    args->sa_ctx = ctx;
+    args->sa_cfg = ctx_config(ctx);
     args->sa_idx = idx;
 
     rc = pthread_create(&thr, &attr, subtask_main, args);
     if (rc) {
-        lcaplog_err("Can't start subtask: %s", strerror(rc));
+        lcap_error("Can't start subtask: %s", strerror(rc));
         return -rc;
     }
 
     if (thr_id != NULL)
         *thr_id = thr;
 
-    return 0;
-}
-
-static int lcap_workers_start(struct lcap_ctx *ctx)
-{
-    const struct lcap_cfg   *cfg = ctx_config(ctx);
-    int                      count = cfg->ccf_worker_count;
-    int                      i, rc;
-
-    ctx->cc_wrk_info = (struct subtask_info *)calloc(count,
-                                                     sizeof(struct subtask_info));
-    if (ctx->cc_wrk_info == NULL)
-        return -ENOMEM;
-
-    rc = lcap_module_load_external(ctx, cfg->ccf_module);
-    if (rc)
-        return rc;
-
-    for (i = 0; i < count; i++) {
-        lcaplog_dbg("Starting worker #%d/%d", i + 1, count);
-        rc = lcap_subtask(ctx, i, worker_main, &ctx->cc_wrk_info[i].si_thread);
-        if (rc) {
-            lcaplog_err("Cannot start worker thread: %s", strerror(rc));
-            return rc;
-        }
-        ctx->cc_wrk_info[i].si_running = true;
-    }
     return 0;
 }
 
@@ -128,16 +101,16 @@ static int lcap_readers_start(struct lcap_ctx *ctx)
     int                      rc;
 
     ctx->cc_rdr_info = (struct subtask_info *)calloc(count,
-                                                     sizeof(struct subtask_info));
+                                                 sizeof(struct subtask_info));
     if (ctx->cc_rdr_info == NULL)
         return -ENOMEM;
 
     for (i = 0; i < count; i++) {
-        lcaplog_dbg("Starting changelog reader #%d/%d (%s)",
+        lcap_verb("Starting changelog reader #%d/%d (%s)",
                     i + 1, count, cfg->ccf_mdt[i]);
         rc = lcap_subtask(ctx, i, reader_main, &ctx->cc_rdr_info[i].si_thread);
         if (rc) {
-            lcaplog_err("Cannot start reader thread: %s", strerror(rc));
+            lcap_error("Cannot start reader thread: %s", strerror(rc));
             return rc;
         }
         ctx->cc_rdr_info[i].si_running = true;
@@ -145,7 +118,7 @@ static int lcap_readers_start(struct lcap_ctx *ctx)
     return 0;
 }
 
-static int lcap_setup_tasks_ventilator(struct lcap_ctx *ctx)
+static int lcap_bind_server(struct lcap_ctx *ctx)
 {
     int rc;
 
@@ -153,43 +126,21 @@ static int lcap_setup_tasks_ventilator(struct lcap_ctx *ctx)
     if (ctx->cc_zctx == NULL)
         return -ENOMEM;
 
-    ctx->cc_wrk = zmq_socket(ctx->cc_zctx, ZMQ_DEALER);
-    if (ctx->cc_wrk == NULL) {
+    ctx->cc_sock = zmq_socket(ctx->cc_zctx, ZMQ_ROUTER);
+    if (ctx->cc_sock == NULL) {
         rc = -errno;
-        lcaplog_err("Opening publication socket: %s", strerror(-rc));
+        lcap_error("Opening broker socket: %s", strerror(-rc));
         return rc;
     }
 
-    rc = zmq_bind(ctx->cc_wrk, WORKERS_URL);
-    if (rc) {
+    rc = zmq_bind(ctx->cc_sock, BROKER_BIND_URL);
+    if (rc < 0) {
         rc = -errno;
-        lcaplog_err("Binding to %s: %s", WORKERS_URL, strerror(-rc));
+        lcap_error("Binding to %s: %s", BROKER_BIND_URL, strerror(-rc));
         return rc;
     }
 
-    lcaplog_dbg("Ready to accept workers on %s", WORKERS_URL);
-    return 0;
-}
-
-static int lcap_bind_server(struct lcap_ctx *ctx)
-{
-    int rc;
-
-    ctx->cc_cli = zmq_socket(ctx->cc_zctx, ZMQ_ROUTER);
-    if (ctx->cc_cli == NULL) {
-        rc = -errno;
-        lcaplog_err("Opening external publication socket: %s", strerror(-rc));
-        return rc;
-    }
-
-    rc = zmq_bind(ctx->cc_cli, SERVER_BIND_URL);
-    if (rc) {
-        rc = -errno;
-        lcaplog_err("Binding to %s: %s", SERVER_BIND_URL, strerror(-rc));
-        return rc;
-    }
-
-    lcaplog_dbg("Ready to accept requests on %s", SERVER_BIND_URL);
+    lcap_verb("Ready to accept requests on %s", BROKER_BIND_URL);
     return 0;
 }
 
@@ -227,51 +178,55 @@ static int lcap_ctx_init(struct lcap_ctx *ctx, struct lcap_cfg *config)
 
     lcap_log_open();
 
-    rc = lcap_setup_tasks_ventilator(ctx);
+    rc = lcap_bind_server(ctx);
     if (rc)
         return rc;
-
-    rc = lcap_workers_start(ctx);
-    if (rc)
-        return rc;
-
-    lcaplog_dbg("Sleeping %u msec to let workers join", SLOW_JOINER_PAUSE);
-    usleep(SLOW_JOINER_PAUSE * 1000);
 
     rc = lcap_readers_start(ctx);
     if (rc)
         return rc;
 
-    rc = lcap_bind_server(ctx);
-    if (rc)
-        return rc;
+    lcap_verb("Sleeping %u msec to let readers join", SLOW_JOINER_PAUSE);
+    usleep(SLOW_JOINER_PAUSE * 1000);
 
     return 0;
 }
 
 static int lcap_ctx_release(struct lcap_ctx *ctx)
 {
-    int rc;
+    if (ctx->cc_sock != NULL)
+        zmq_close(ctx->cc_sock);
 
-    if (ctx->cc_cli)
-        zmq_close(ctx->cc_cli);
-
-    rc = lcap_module_unload_external(ctx);
-    if (rc)
-        return rc;
-
-    if (ctx->cc_wrk)
-        zmq_close(ctx->cc_wrk);
-
-    if (ctx->cc_zctx)
+    if (ctx->cc_zctx != NULL)
         zmq_ctx_destroy(ctx->cc_zctx);
 
-    free(ctx->cc_wrk_info);
     free(ctx->cc_rdr_info);
-
     lcap_log_close();
 
     return 0;
+}
+
+static int lcapd_serve(struct lcap_ctx *ctx)
+{
+    int rc;
+
+    do {
+        zmq_pollitem_t  itm[] = {
+            {ctx->cc_sock, 0, ZMQ_POLLIN, 0}
+        };
+
+        rc = zmq_poll(itm, 1, -1);
+        if (rc < 0)
+            break;
+
+        if (itm[0].revents & ZMQ_POLLIN) {
+            rc = lcap_rpc_recv(ctx->cc_sock, LCAP_RECV_NONBLOCK,
+                               lcapd_process_request, ctx);
+            lcap_debug("Processed %d incoming RPCs", rc);
+        }
+    } while (rc >= 0);
+
+    return rc;
 }
 
 void usage(void)
@@ -283,22 +238,6 @@ void usage(void)
     fprintf(stderr, "  -h               display this help and exit\n");
 }
 
-static int lcap_workers_terminate(struct lcap_ctx *ctx)
-{
-    const struct lcap_cfg   *cfg = ctx_config(ctx);
-    int                      i;
-
-    for (i = 0; i < cfg->ccf_worker_count; i++)
-        ctx->cc_wrk_info[i].si_running = false;
-
-    lcaplog_dbg("Signaled termination to all workers");
-
-    for (i = 0; i < cfg->ccf_worker_count; i++)
-        pthread_join(ctx->cc_wrk_info[i].si_thread, NULL);
-
-    return 0;
-}
-
 static int lcap_readers_terminate(struct lcap_ctx *ctx)
 {
     const struct lcap_cfg   *cfg = ctx_config(ctx);
@@ -307,7 +246,7 @@ static int lcap_readers_terminate(struct lcap_ctx *ctx)
     for (i = 0; i < cfg->ccf_mdtcount; i++)
         ctx->cc_rdr_info[i].si_running = false;
 
-    lcaplog_dbg("Signaled termination to all readers");
+    lcap_verb("Signaled termination to all readers");
 
     for (i = 0; i < cfg->ccf_mdtcount; i++)
         pthread_join(ctx->cc_rdr_info[i].si_thread, NULL);
@@ -375,15 +314,14 @@ static void *setup_sighandlers(void *args)
 
     for (;;) {
         if (TerminateSig) {
-            lcaplog_dbg("Received termination signal: quitting.");
+            lcap_verb("Received termination signal: quitting.");
             lcap_readers_terminate(ctx);   /* stop reading changelog rec */
-            lcap_workers_terminate(ctx);   /* stop delivering changelogs */
             exit(1);
         } else if (ReloadSig) {
-            lcaplog_dbg("Received SIGHUP: reloading configuration");
+            lcap_verb("Received SIGHUP: reloading configuration");
             ReloadSig = 0;
         } else if (DumpStatsSig) {
-            lcaplog_dbg("Received SIGUSR1: dumping current statistics "
+            lcap_verb("Received SIGUSR1: dumping current statistics "
                         "(not implemented)");
             DumpStatsSig = 0;
         }
@@ -431,7 +369,7 @@ int main(int ac, char **av)
     if (rc)
         return rc;
 
-    zmq_proxy(ctx.cc_cli, ctx.cc_wrk, NULL);
+    rc = lcapd_serve(&ctx);
 
     sleep(1);
     lcap_ctx_release(&ctx);

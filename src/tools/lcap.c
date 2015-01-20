@@ -47,13 +47,12 @@ void static usage(void)
 
 int main(int ac, char **av)
 {
-    struct lcap_cl_ctx  *ctx = NULL;
-    const char          *mdtname = NULL;
-    lcap_chlg_t          rec;
-    int                  flags = LCAP_CL_BLOCK;
-    int                  c;
-    int                  rc;
-    long long            last_idx = 0;
+    struct lcap_cl_ctx      *ctx = NULL;
+    const char              *mdtname = NULL;
+    struct changelog_rec    *rec;
+    int                      flags = LCAP_CL_BLOCK;
+    int                      c;
+    int                      rc;
 
     if (ac < 2) {
         usage();
@@ -84,8 +83,8 @@ int main(int ac, char **av)
     mdtname = av[0];
 
     rc = lcap_changelog_start(&ctx, flags, mdtname, 0LL);
-    if (rc) {
-        fprintf(stderr, "lcap_changelog_start: %s\n", strerror(-rc));
+    if (rc < 0) {
+        fprintf(stderr, "lcap_changelog_start: %s\n", zmq_strerror(-rc));
         return 1;
     }
 
@@ -103,36 +102,46 @@ int main(int ac, char **av)
                ts.tm_year + 1900, ts.tm_mon + 1, ts.tm_mday,
                rec->cr_flags & CLF_FLAGMASK, PFID(&rec->cr_tfid));
 
+        if (rec->cr_flags & CLF_JOBID)
+            printf(" j=%s", (const char *)changelog_rec_jobid(rec));
+
+        if (rec->cr_flags & CLF_RENAME) {
+            struct changelog_ext_rename *rnm;
+
+            rnm = changelog_rec_rename(rec);
+            if (!fid_is_zero(&rnm->cr_sfid))
+                printf(" s="DFID" sp="DFID" %.*s", PFID(&rnm->cr_sfid),
+                       PFID(&rnm->cr_spfid), changelog_rec_snamelen(rec),
+                       changelog_rec_sname(rec));
+        }
+
         if (rec->cr_namelen)
             printf(" p="DFID" %.*s", PFID(&rec->cr_pfid), rec->cr_namelen,
                    changelog_rec_name(rec));
 
-        if (rec->cr_flags & CLF_JOBID)
-            printf(" j=%s", (const char *)changelog_rec_jobid(rec));
-
-        /*
-        if (!fid_is_zero(&rec->cr_sfid))
-            printf(" s="DFID" sp="DFID" %.*s", PFID(&rec->cr_sfid),
-                   PFID(&rec->cr_spfid), changelog_rec_snamelen(rec),
-                   changelog_rec_sname(rec));
-        */
-
         printf("\n");
 
-        last_idx = rec->cr_index;
-        lcap_changelog_free(ctx, &rec);
+        rc = lcap_changelog_clear(ctx, mdtname, "", rec->cr_index);
+        if (rc < 0) {
+            fprintf(stderr, "lcap_changelog_clear: %s\n", zmq_strerror(-rc));
+            return 1;
+        }
+
+        rc = lcap_changelog_free(ctx, &rec);
+        if (rc < 0) {
+            fprintf(stderr, "lcap_changelog_free: %s\n", zmq_strerror(-rc));
+            return 1;
+        }
     }
 
     if (rc && rc != 1) {
-        fprintf(stderr, "lcap_changelog_recv: %s\n", strerror(-rc));
+        fprintf(stderr, "lcap_changelog_recv: %s\n", zmq_strerror(-rc));
         return 1;
     }
 
-    rc = lcap_changelog_clear(ctx, mdtname, "", last_idx);
-
     rc = lcap_changelog_fini(ctx);
     if (rc) {
-        fprintf(stderr, "lcap_changelog_fini: %s\n", strerror(-rc));
+        fprintf(stderr, "lcap_changelog_fini: %s\n", zmq_strerror(-rc));
         return 1;
     }
 

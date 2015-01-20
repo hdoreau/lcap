@@ -23,8 +23,6 @@
 #ifndef LCAP_H
 #define LCAP_H
 
-#include <lcaplog.h>
-
 #include <unistd.h>
 #include <limits.h>
 #include <assert.h>
@@ -37,11 +35,9 @@
 #include <zmq.h>
 
 #include <lcap_idl.h>
+#include <lcap_log.h>
 
 #define MAX_MDT 128
-
-#define MAX_CHAN_NAMELEN    1024
-#define MAX_MSG_LEN         256
 
 
 struct lcap_ctx;
@@ -54,12 +50,11 @@ struct lcap_procmod_operations {
     int (*cpo_init)(struct lcap_ctx *ctx, void **mod_data);
     int (*cpo_destroy)(struct lcap_ctx *ctx, void *mod_data);
     int (*cpo_rec_enqueue)(struct lcap_ctx *ctx, void *mod_data,
-                           const lcap_chlg_t rec);
+                           const struct changelog_rec *rec);
     int (*cpo_rec_dequeue)(struct lcap_ctx *ctx, void *mod_data,
-                           lcap_chlg_t *rec);
+                           struct changelog_rec *rec);
     int (*cpo_set_ack)(struct lcap_ctx *ctx, void *mod_data,
-                       const struct client_id *id, const char *device,
-                       long long recno);
+                       const char *device, long long recno);
     int (*cpo_get_ack)(struct lcap_ctx *ctx, void *mod_data, const char *device,
                        long long *recno);
 };
@@ -85,23 +80,17 @@ struct lcap_cfg {
     bool             ccf_oneshot;
 
     int              ccf_verbosity;
-    unsigned int     ccf_rec_batch_count;
+    int              ccf_max_bkt;
+    int              ccf_rec_batch_count;
     int              ccf_worker_count;
 };
 
 struct lcap_ctx {
-    struct lcap_cfg         *cc_config;
-    struct lcap_logger      *cc_logger;
-    struct lcap_proc_module  cc_module;
-
-    struct subtask_info     *cc_wrk_info;
-    struct subtask_info     *cc_rdr_info;
-
-    void                    *cc_zctx;   /**< 0mq context */
-    void                    *cc_wrk;    /**< Workers socket */
-    void                    *cc_cli;    /**< Clients socket */
-
-    bool                     cc_loaded;
+    struct lcap_cfg     *cc_config;
+    struct subtask_info *cc_rdr_info;
+    void                *cc_zctx;   /**< 0mq context */
+    void                *cc_sock;   /**< Broker socket */
+    struct conn_id      *cc_rcid[MAX_MDT];  /* readers identities */
 };
 
 

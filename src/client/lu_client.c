@@ -55,13 +55,13 @@ static int lu_changelog_fini(struct lcap_cl_ctx *ctx)
 }
 
 static int lu_changelog_recv(struct lcap_cl_ctx *ctx,
-                             lcap_chlg_t *rec)
+                             struct changelog_rec **rec)
 {
     return llapi_changelog_recv(ctx->ccc_ptr, rec);
 }
 
 static int lu_changelog_free(struct lcap_cl_ctx *ctx,
-                             lcap_chlg_t *rec)
+                             struct changelog_rec **rec)
 {
     return llapi_changelog_free(rec);
 }

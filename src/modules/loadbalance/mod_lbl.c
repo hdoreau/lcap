@@ -96,13 +96,13 @@ int lcap_module_init(struct lcap_ctx *ctx, void **mdata)
     set_thr_id((user - 1) % max(ctx->cc_config->ccf_mdtcount,
                                 ctx->cc_config->ccf_worker_count));
 
-    lcaplog_nfo("Initializing module %s", MODNAME_LBL);
+    lcap_info("Initializing module %s", MODNAME_LBL);
 
     if (user == 1) {
         /* First thread is responsible for initializing shared data structures */
         rc = shared_structures_init(ctx);
         if (rc < 0) {
-            lcaplog_err("Failed to initialize shared structures: %s", strerror(-rc));
+            lcap_error("Failed to initialize shared structures: %s", strerror(-rc));
             return rc;
         }
     }
@@ -127,7 +127,7 @@ int lcap_module_destroy(struct lcap_ctx *ctx, void *mdata)
 
 int lcap_module_rec_enqueue(struct lcap_ctx *ctx, void *mdata, lcap_chlg_t rec)
 {
-    lcaplog_all("Enqueuing record #%llu", rec->cr_index);
+    lcap_debug("Enqueuing record #%llu", rec->cr_index);
     pqueue_push(entries, rec);
     return 0;
 }
@@ -138,7 +138,7 @@ int lcap_module_rec_dequeue(struct lcap_ctx *ctx, void *mdata, lcap_chlg_t *rec)
     if (*rec == NULL)
         return -EAGAIN;
 
-    lcaplog_all("Dequeued record #%llu", (*rec)->cr_index);
+    lcap_debug("Dequeued record #%llu", (*rec)->cr_index);
     return 0;
 }
 

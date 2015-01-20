@@ -9,7 +9,7 @@ LCAP_RELEASE="3"
 AC_CONFIG_AUX_DIR([.autotools])
 AC_CONFIG_MACRO_DIR([.autotools/m4])
 AC_CONFIG_SRCDIR([src/lcapd/lcapd.c])
-AC_CONFIG_HEADERS([src/common/lcap_config.h])
+AC_CONFIG_HEADERS([src/include/lcap_config.h])
 
 AM_INIT_AUTOMAKE([-Wall -Werror foreign])
 m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES])
@@ -72,9 +72,11 @@ AC_SUBST(ac_configure_args)
 
 AC_CONFIG_FILES([Makefile
                  src/Makefile
+                 src/include/Makefile
                  src/client/Makefile
                  src/common/Makefile
                  src/lcapd/Makefile
+                 src/lcapnet/Makefile
                  src/modules/Makefile
                  src/modules/loadbalance/Makefile
                  src/tools/Makefile

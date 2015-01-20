@@ -49,8 +49,8 @@ struct lcap_cl_operations {
     int (*cco_start)(struct lcap_cl_ctx *ctx, int flags, const char *mdtname,
                      long long startrec);
     int (*cco_fini)(struct lcap_cl_ctx *ctx);
-    int (*cco_recv)(struct lcap_cl_ctx *ctx, lcap_chlg_t *rec);
-    int (*cco_free)(struct lcap_cl_ctx *ctx, lcap_chlg_t *rec);
+    int (*cco_recv)(struct lcap_cl_ctx *ctx, struct changelog_rec **rec);
+    int (*cco_free)(struct lcap_cl_ctx *ctx, struct changelog_rec **rec);
     int (*cco_clear)(struct lcap_cl_ctx *ctx, const char *mdtname,
                      const char *id, long long endrec);
 };
@@ -107,7 +107,7 @@ static inline int lcap_changelog_fini(struct lcap_cl_ctx *ctx)
  * \retval Appropriate negative error code on failure
  */
 static inline int lcap_changelog_recv(struct lcap_cl_ctx *ctx,
-                                      lcap_chlg_t *rec)
+                                      struct changelog_rec **rec)
 {
     assert(ctx);
     assert(ctx->ccc_ops);
@@ -126,7 +126,7 @@ static inline int lcap_changelog_recv(struct lcap_cl_ctx *ctx,
  * \retval Appropriate negative error code on failure
  */
 static inline int lcap_changelog_free(struct lcap_cl_ctx *ctx,
-                                      lcap_chlg_t *rec)
+                                      struct changelog_rec **rec)
 {
     assert(ctx);
     assert(ctx->ccc_ops);

@@ -20,27 +20,23 @@
  */
 
 
-#if !defined(container_of)
-#include <stddef.h>
-
-#define container_of(ptr, type, member) \
-            ((type *)((char *)(ptr) - offsetof(type, member)))
-#endif
-
-#define DEFAULT_CACHE_SIZE  256
-
 #include <lcap_client.h>
 
 #include <stdlib.h>
 #include <zmq.h>
 
+#define DEFAULT_CACHE_SIZE  256
+
+
 struct px_zmq_data {
-    struct client_id      cl_id;    /**< lcapd will name us */
-    void                 *zmq_ctx;  /**< 0MQ context */
-    void                 *zmq_srv;  /**< Socket to server */
-    lcap_chlg_t          *records;  /**< Undelivered (cached) records */
-    unsigned int          rec_nxt;  /**< Next record to read */
-    unsigned int          rec_cnt;  /**< High watermark */
+    void                     *zmq_ctx;  /**< 0MQ context */
+    void                     *zmq_srv;  /**< Socket to server */
+    void                     *rec_buff; /**< RPC buffer containing records */
+    struct changelog_rec    **records;  /**< Undelivered (cached) records */
+    unsigned int              rec_nxt;  /**< Next record to read */
+    unsigned int              rec_cnt;  /**< High watermark */
+    int                       rec_mdt_len;
+    char                      rec_mdt[128];
 };
 
 static int pzd_destroy(struct px_zmq_data *pzd)
@@ -51,24 +47,23 @@ static int pzd_destroy(struct px_zmq_data *pzd)
     if (pzd->zmq_ctx != NULL)
         zmq_ctx_destroy(pzd->zmq_ctx);
 
-    if (pzd->records != NULL)
-        free(pzd->records);
-
+    free(pzd->rec_buff);
+    free(pzd->records);
     memset(pzd, 0, sizeof(*pzd));
     return 0;
 }
 
 static int pzd_cache_grow(struct px_zmq_data *pzd, size_t newsize)
 {
-    newsize *= sizeof(lcap_chlg_t );
-    pzd->records = (lcap_chlg_t *)realloc(pzd->records, newsize);
+    newsize *= sizeof(struct changelog_rec *);
+    pzd->records = (struct changelog_rec **)realloc(pzd->records, newsize);
     if (pzd->records == NULL)
         return -ENOMEM;
 
     return 0;
 }
 
-static int pzd_init(struct px_zmq_data *pzd)
+static int pzd_init(struct px_zmq_data *pzd, const char *mdtname)
 {
     int rc;
 
@@ -84,9 +79,18 @@ static int pzd_init(struct px_zmq_data *pzd)
         goto err_cleanup;
     }
 
-    pzd->rec_cnt = 0;
-    pzd->rec_nxt = 0;
-    pzd->records = NULL;
+    pzd->rec_cnt  = 0;
+    pzd->rec_nxt  = 0;
+    pzd->rec_buff = NULL;
+    pzd->records  = NULL;
+
+    pzd->rec_mdt_len = strlen(mdtname);
+    if (pzd->rec_mdt_len > sizeof(pzd->rec_mdt)) {
+        rc = -EINVAL;
+        goto err_cleanup;
+    }
+
+    strcpy(pzd->rec_mdt, mdtname);
 
     rc = pzd_cache_grow(pzd, DEFAULT_CACHE_SIZE);
     if (rc < 0)
@@ -116,24 +120,20 @@ static int cl_start_pack(struct px_rpc_register *msg, int flags,
     return 0;
 }
 
-static int cl_dequeue_pack(struct px_rpc_dequeue *msg,
-                           const struct client_id *clid)
+static int cl_dequeue_pack(struct px_rpc_dequeue *msg)
 {
     memset(msg, 0, sizeof(*msg));
     msg->pr_hdr.op_type = RPC_OP_DEQUEUE;
-    memcpy(&msg->pr_hdr.cl_id, clid, sizeof(msg->pr_hdr.cl_id));
     return 0;
 }
 
 static int cl_clear_pack(struct px_rpc_clear *msg, const char *mdtname,
-                         const char *id, long long endrec,
-                         const struct client_id *clid)
+                         const char *id, long long endrec)
 {
     size_t id_len;
     size_t dev_len;
 
     msg->pr_hdr.op_type = RPC_OP_CLEAR;
-    memcpy(&msg->pr_hdr.cl_id, clid, sizeof(msg->pr_hdr.cl_id));
     msg->pr_index = endrec;
 
     id_len = strlen(id);
@@ -145,73 +145,25 @@ static int cl_clear_pack(struct px_rpc_clear *msg, const char *mdtname,
     return 0;
 }
 
-
-static int px_changelog_start(struct lcap_cl_ctx *ctx, int flags,
-                              const char *mdtname, long long startrec)
+/**
+ * Send a request to the server. The request is composed of two top frames:
+ * A first one identifying the targetted MDT, a second one with the actual RPC
+ * body.
+ * The ZMQ_REQ socket we use will add another (envelope) one, but that's server
+ * business...
+ */
+static int px_rpc_send(struct px_zmq_data *pzd, char *rpc, size_t rpc_size)
 {
-    struct px_zmq_data      *pzd;
-    struct px_rpc_register   reg;
-    struct px_rpc_ack        ack;
-    int                      rc = 0;
+    int rc;
 
-    pzd = calloc(1, sizeof(*pzd));
-    if (pzd == NULL) {
-        rc = -ENOMEM;
-        goto out;
-    }
-
-    rc = pzd_init(pzd);
-    if (rc)
-        goto out;
-
-    ctx->ccc_ptr = (void *)pzd;
-
-    rc = zmq_connect(pzd->zmq_srv, px_rec_uri());
-    if (rc < 0) {
-        rc = -errno;
-        goto out_initialized;
-    }
-
-    rc = cl_start_pack(&reg, flags, mdtname, startrec);
+    rc = zmq_send(pzd->zmq_srv, pzd->rec_mdt, pzd->rec_mdt_len, ZMQ_SNDMORE);
     if (rc < 0)
-        goto out_initialized;
+        return -errno;
 
-    rc = zmq_send(pzd->zmq_srv, &reg, sizeof(reg), 0);
-    if (rc < 0) {
-        rc = -errno;
-        goto out_initialized;
-    }
+    rc = zmq_send(pzd->zmq_srv, rpc, rpc_size, 0);
+    if (rc < 0)
+        return -errno;
 
-    rc = zmq_recv(pzd->zmq_srv, &ack, sizeof(ack), 0);
-    if (rc < 0) {
-        rc = -errno;
-        goto out_initialized;
-    }
-
-    if (rc < sizeof(ack)) {
-        rc = -EINVAL;
-        goto out_initialized;
-    }
-
-    memcpy(&pzd->cl_id, &ack.pr_hdr.cl_id, sizeof(pzd->cl_id));
-    return ack.pr_retcode;
-
-out_initialized:
-    pzd_destroy(pzd);
-
-out:
-    free(pzd);
-    ctx->ccc_ptr = NULL;
-
-    return rc;
-}
-
-static int px_changelog_fini(struct lcap_cl_ctx *ctx)
-{
-    if (ctx == NULL)
-        return -EINVAL;
-
-    pzd_destroy((struct px_zmq_data *)ctx->ccc_ptr);
     return 0;
 }
 
@@ -255,13 +207,94 @@ static int cl_ack_retcode(struct px_zmq_data *pzd)
     return rep_ack.pr_retcode;
 }
 
-static inline lcap_chlg_t 
-changelog_rec_next(lcap_chlg_t rec)
+static int px_changelog_start(struct lcap_cl_ctx *ctx, int flags,
+                              const char *mdtname, long long startrec)
 {
-    return (lcap_chlg_t)(changelog_rec_name(rec) + rec->cr_namelen);
+    struct px_zmq_data      *pzd;
+    struct px_rpc_register   reg;
+    struct px_rpc_ack        ack;
+    int                      rc = 0;
+
+    pzd = calloc(1, sizeof(*pzd));
+    if (pzd == NULL) {
+        rc = -ENOMEM;
+        goto out;
+    }
+
+    rc = pzd_init(pzd, mdtname);
+    if (rc)
+        goto out;
+
+    ctx->ccc_ptr = (void *)pzd;
+
+    rc = zmq_connect(pzd->zmq_srv, px_rec_uri());
+    if (rc < 0) {
+        rc = -errno;
+        goto out_initialized;
+    }
+
+    rc = cl_start_pack(&reg, flags, mdtname, startrec);
+    if (rc < 0)
+        goto out_initialized;
+
+    rc = px_rpc_send(pzd, (char *)&reg, sizeof(reg));
+    if (rc < 0)
+        goto out_initialized;
+
+    rc = zmq_recv(pzd->zmq_srv, &ack, sizeof(ack), 0);
+    if (rc < 0) {
+        rc = -errno;
+        goto out_initialized;
+    }
+
+    if (rc < sizeof(ack)) {
+        rc = -EINVAL;
+        goto out_initialized;
+    }
+
+    return ack.pr_retcode;
+
+out_initialized:
+    pzd_destroy(pzd);
+
+out:
+    free(pzd);
+    ctx->ccc_ptr = NULL;
+
+    return rc;
 }
 
-#define RECV_BUFFER_LENGTH  4096
+static int px_changelog_fini(struct lcap_cl_ctx *ctx)
+{
+    struct px_zmq_data  *pzd = (struct px_zmq_data *)ctx->ccc_ptr;
+    struct px_rpc_fini   rpc;
+    int                  rc;
+
+    if (ctx == NULL)
+        return -EINVAL;
+
+    memset(&rpc, 0, sizeof(rpc));
+    rpc.pr_hdr.op_type = RPC_OP_FINI;
+
+    rc = px_rpc_send(pzd, (char *)&rpc, sizeof(rpc));
+    if (rc < 0)
+        return rc;
+
+    rc = cl_ack_retcode(pzd);
+    if (rc < 0)
+        return rc;
+
+    pzd_destroy((struct px_zmq_data *)ctx->ccc_ptr);
+    return rc;
+}
+
+static inline struct changelog_rec * 
+changelog_rec_next(struct changelog_rec *rec)
+{
+    return (struct changelog_rec *)(changelog_rec_name(rec) + rec->cr_namelen);
+}
+
+#define RECV_BUFFER_LENGTH  8 * 1024 * 1024
 static int px_dequeue_records(struct px_zmq_data *pzd)
 {
     char                    *buff;
@@ -270,15 +303,13 @@ static int px_dequeue_records(struct px_zmq_data *pzd)
     int                      rc;
     int                      rcvd = 0;
 
-    rc = cl_dequeue_pack(&rpc, &pzd->cl_id);
+    rc = cl_dequeue_pack(&rpc);
     if (rc < 0)
         return rc;
 
-    rc = zmq_send(pzd->zmq_srv, &rpc, sizeof(rpc), 0);
-    if (rc < 0) {
-        rc = -errno;
+    rc = px_rpc_send(pzd, (char *)&rpc, sizeof(rpc));
+    if (rc < 0)
         return rc;
-    }
 
     buff = (char *)malloc(RECV_BUFFER_LENGTH);
     if (buff == NULL)
@@ -312,7 +343,7 @@ static int px_dequeue_records(struct px_zmq_data *pzd)
 
         case RPC_OP_ENQUEUE: {
             struct px_rpc_enqueue   *rep_enq;
-            lcap_chlg_t              rec_iter;
+            struct changelog_rec    *rec_iter;
             int                      i;
 
             rep_enq = (struct px_rpc_enqueue *)buff;
@@ -322,21 +353,21 @@ static int px_dequeue_records(struct px_zmq_data *pzd)
                 goto out_free;
             }
 
-            rec_iter = (lcap_chlg_t )rep_enq->pr_records;
-            for (i = 0; i < rep_enq->pr_count; i++) {
-                size_t rec_size = sizeof(*rec_iter) + rec_iter->cr_namelen;
-
-                pzd->records[i] = (lcap_chlg_t )malloc(rec_size);
-                if (pzd->records[i] == NULL) {
-                    rc = -ENOMEM;
+            if (rep_enq->pr_count > pzd->rec_cnt) {
+                rc = pzd_cache_grow(pzd, rep_enq->pr_count);
+                if (rc < 0)
                     goto out_free;
-                }
-                memcpy(pzd->records[i], rec_iter, rec_size);
-                rec_iter = changelog_rec_next(rec_iter);
             }
-            pzd->rec_nxt = 0;
-            pzd->rec_cnt = i;
-            free(buff);
+
+            rec_iter = (struct changelog_rec *)rep_enq->pr_records;
+            for (i = 0; i < rep_enq->pr_count; i++) {
+                pzd->records[i] = (struct changelog_rec *)rec_iter;
+                rec_iter = changelog_rec_next(rec_iter);
+                /* XXX check offset validity */
+            }
+            pzd->rec_nxt  = 0;
+            pzd->rec_cnt  = i;
+            pzd->rec_buff = buff;
             rc = 0;
             break;
         }
@@ -354,7 +385,7 @@ out_free:
 }
 
 static int px_changelog_recv(struct lcap_cl_ctx *ctx,
-                             lcap_chlg_t *rec)
+                             struct changelog_rec **rec)
 {
     struct px_zmq_data  *pzd = (struct px_zmq_data *)ctx->ccc_ptr;
     int                  rc;
@@ -371,9 +402,14 @@ static int px_changelog_recv(struct lcap_cl_ctx *ctx,
 
 
 static int px_changelog_free(struct lcap_cl_ctx *ctx,
-                             lcap_chlg_t *rec)
+                             struct changelog_rec **rec)
 {
-    free(*rec);
+    struct px_zmq_data  *pzd = (struct px_zmq_data *)ctx->ccc_ptr;
+
+    if (pzd->rec_nxt == pzd->rec_cnt) {
+        free(pzd->rec_buff);
+        pzd->rec_buff = NULL;
+    }
     *rec = NULL;
     return 0;
 }
@@ -388,6 +424,9 @@ static int px_changelog_clear(struct lcap_cl_ctx *ctx, const char *mdtname,
     size_t               rpc_len;
     int                  rc;
 
+    if (pzd->rec_nxt < pzd->rec_cnt)
+        return 0;
+
     id_len = strlen(id);
     name_len = strlen(mdtname);
 
@@ -396,15 +435,13 @@ static int px_changelog_clear(struct lcap_cl_ctx *ctx, const char *mdtname,
     if (rpc == NULL)
         return -ENOMEM;
 
-    rc = cl_clear_pack(rpc, mdtname, id, endrec, &pzd->cl_id);
+    rc = cl_clear_pack(rpc, mdtname, id, endrec);
     if (rc)
         goto out_free;
 
-    rc = zmq_send(pzd->zmq_srv, rpc, rpc_len, 0);
-    if (rc < 0) {
-        rc = -errno;
+    rc = px_rpc_send(pzd, (char *)rpc, rpc_len);
+    if (rc < 0)
         goto out_free;
-    }
 
     rc = cl_ack_retcode(pzd);
 

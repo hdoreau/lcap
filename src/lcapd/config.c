@@ -31,7 +31,7 @@
 
 #define DEFAULT_CFG_FILE    "/etc/lcap.cfg"
 #define DEFAULT_REC_BATCH   64
-
+#define DEFAULT_MAX_BUCKETS 256
 
 /* defined in lcapd.c */
 void usage(void);
@@ -127,6 +127,20 @@ static int handle_cfg_batch_records_line(struct lcap_cfg *config, const char *li
     return 0;
 }
 
+static int handle_cfg_max_buckets_line(struct lcap_cfg *config, const char *line)
+{
+    char *count;
+
+    count = cfg_get_arg(line);
+    if (count == NULL)
+        return -EINVAL;
+
+    config->ccf_max_bkt = atoi(count);
+    free(count);
+
+    return 0;
+}
+
 static int handle_cfg_logtype_line(struct lcap_cfg *config, const char *line)
 {
     if (config->ccf_loggername)
@@ -200,6 +214,7 @@ static int __parse_config_line(struct lcap_cfg *config, const char *line)
         /* -- global -- */
         {"loadmodule",    handle_cfg_loadmodule_line},
         {"batch_records", handle_cfg_batch_records_line},
+        {"max_buckets",   handle_cfg_max_buckets_line},
         {"logtype",       handle_cfg_logtype_line},
         {"workers",       handle_cfg_workers_line},
         /* -- lustre filesystem -- */
@@ -259,6 +274,7 @@ out:
 static void config_set_defaults(struct lcap_cfg *config)
 {
     config->ccf_rec_batch_count = DEFAULT_REC_BATCH;
+    config->ccf_max_bkt         = DEFAULT_MAX_BUCKETS;
 }
 
 int lcap_cfg_init(int ac, char **av, struct lcap_cfg *config)
@@ -292,4 +308,3 @@ int lcap_cfg_release(struct lcap_cfg *cfg)
 
     return 0;
 }
-

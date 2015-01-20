@@ -23,14 +23,15 @@
 #ifndef LCAPD_INTERNAL_H
 #define LCAPD_INTERNAL_H
 
+#include <lcap_net.h>
+
 struct lcap_cfg;
-struct lcap_ctx;
 
 int lcap_cfg_init(int ac, char **av, struct lcap_cfg *config);
 int lcap_cfg_release(struct lcap_cfg *config);
 
-int lcap_module_load_external(struct lcap_ctx *ctx, const char *modname);
-int lcap_module_unload_external(struct lcap_ctx *ctx);
+
+int lcapd_process_request(void *hint, const struct lcapnet_request *req);
 
 
 struct subtask_info {
@@ -39,16 +40,37 @@ struct subtask_info {
 };
 
 struct subtask_args {
-    struct lcap_ctx *sa_ctx;
-    unsigned int     sa_idx;
+    const struct lcap_cfg   *sa_cfg;
+    unsigned int             sa_idx;
 };
 
-void *worker_main(void *args);
 void *reader_main(void *args);
 
+#define READERS_URL     "inproc://lcaprdr.ipc"
 #define WORKERS_URL     "inproc://lcapwrk.ipc"
-#define SERVER_CONN_URL "tcp://localhost:8189"
-#define SERVER_BIND_URL "tcp://*:8189"
+
+#define BROKER_CONN_URL "tcp://localhost:8189"
+#define BROKER_BIND_URL "tcp://*:8189"
+
+
+int peer_rpc_send(void *sock, const struct conn_id *src_id,
+                  const struct conn_id *dst_id, const char *msg,
+                  size_t msg_len);
+
+int ack_retcode(void *sock, const struct conn_id *src_cid,
+                const struct conn_id *dst_cid, int ret);
+
+
+static inline bool cid_compare(const struct conn_id *cid0,
+                               const struct conn_id *cid1)
+{
+    if (cid0->ci_length > cid1->ci_length)
+        return -1;
+
+    if (cid0->ci_length < cid1->ci_length)
+        return 1;
+
+    return memcmp(cid0->ci_data, cid1->ci_data, cid0->ci_length);
+}
 
 #endif /* LCAPD_INTERNAL_H */
-

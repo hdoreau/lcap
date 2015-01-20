@@ -44,7 +44,7 @@ int lcap_changelog_start(struct lcap_cl_ctx **pctx, int flags,
         ctx->ccc_ops = &cl_ops_proxy;
 
     rc = ctx->ccc_ops->cco_start(ctx, flags, mdtname, startrec);
-    if (rc) {
+    if (rc < 0) {
         free(ctx);
         ctx = NULL;
     }
