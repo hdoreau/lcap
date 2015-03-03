@@ -77,8 +77,6 @@ AC_CONFIG_FILES([Makefile
                  src/common/Makefile
                  src/lcapd/Makefile
                  src/lcapnet/Makefile
-                 src/modules/Makefile
-                 src/modules/loadbalance/Makefile
                  src/tools/Makefile
                  lcap.spec])
 AC_OUTPUT
