@@ -70,6 +70,8 @@ struct reader_env {
     struct reader_stats      re_stats;   /**< Reader statistics/metrics */
     int                      re_index;   /**< Reader index (one per MDT) */
     long long                re_srec;    /**< Next start index */
+    long long                re_bkt_idx; /**< Global bucket index counter */
+    long long                re_bkt_ack; /**< Next bucket to be cleared */
     long                     re_rec_cnt; /**< Total count of records */
     struct list              re_buckets; /**< Linked list of buckets */
     struct list              re_peers;   /**< Linked list of client states */
@@ -337,6 +339,7 @@ static int rec_bucket_add(struct reader_env *env, int slot_cnt)
     if (bkt == NULL)
         return -ENOMEM;
 
+    bkt->lrb_index = env->re_bkt_idx++;
     list_append(&env->re_buckets, &bkt->lrb_node);
     return 0;
 }
@@ -352,6 +355,17 @@ static void rec_bucket_destroy(struct lcap_rec_bucket *bkt)
         llapi_changelog_free(&bkt->lrb_records[i]);
 
     free(bkt);
+}
+
+/**
+ * Get the highest index contained in a bucket.
+ */
+static long long rec_bucket_max_index(const struct lcap_rec_bucket *bkt)
+{
+    if (bkt->lrb_rec_count == 0)
+        return -1;
+
+    return bkt->lrb_records[bkt->lrb_rec_count - 1]->cr_index;
 }
 
 /**
@@ -550,15 +564,16 @@ static int reader_handle_dequeue(struct reader_env *env,
 
 /**
  * Process RPC_OP_CLEAR request.
- * XXX This definitely needs more love.
  */
 static int reader_handle_clear(struct reader_env *env,
                                const struct lcapnet_request *req)
 {
-    struct px_rpc_clear *rpc = (struct px_rpc_clear *)req->lr_body;
-    struct client_state *cs;
-    //const char          *dev = reader_device(env);
-    //int                  rc;
+    struct px_rpc_clear     *rpc = (struct px_rpc_clear *)req->lr_body;
+    struct client_state     *cs;
+    struct lcap_rec_bucket  *bkt;
+    const char              *cli = env->re_cfg->ccf_clreader;
+    const char              *dev = reader_device(env);
+    int                      rc;
 
     if (req->lr_body_len < sizeof(*rpc)) {
         lcap_error("Truncated CLEAR RPC of size %zd", req->lr_body_len);
@@ -576,18 +591,20 @@ static int reader_handle_clear(struct reader_env *env,
         return 0;   /* Fine... */
     }
 
+    bkt = cs->cs_bucket;
+    if (bkt->lrb_index == env->re_bkt_ack) {
+        rc = llapi_changelog_clear(dev, cli, rec_bucket_max_index(bkt));
+        if (rc < 0) {
+            lcap_error("Cannot clear changelog records "
+                        "(device='%s', reader='%s', rec=%lld): %s",
+                        dev, cli, rec_bucket_max_index(bkt), strerror(-rc));
+            return rc;
+        }
+        env->re_bkt_ack++;
+    }
+
     rec_bucket_destroy(cs->cs_bucket);
     cs->cs_bucket = NULL;
-
-#if 0
-    rc = llapi_changelog_clear(dev, "cl1", (long long)rpc->pr_index);
-    if (rc < 0) {
-        lcap_error("Cannot clear changelog records "
-                    "(device='%s', reader='%s', rec=%lld): %s",
-                    dev, "cl1", (long long)rpc->pr_index, strerror(-rc));
-        return rc;
-    }
-#endif
 
     return ack_retcode(env->re_sock, NULL, req->lr_forward, 0);
 }
