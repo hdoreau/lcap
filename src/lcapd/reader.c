@@ -430,6 +430,12 @@ static int reader_handle_start(struct reader_env *env,
         return -EINVAL;
     }
 
+    cs = client_state_get(env, req->lr_forward);
+    if (cs != NULL) {
+        lcap_info("Received START RPC for already registered client");
+        return -EALREADY;
+    }
+
     cs = calloc(1, sizeof(*cs));
     if (cs == NULL) {
         rc = -ENOMEM;
