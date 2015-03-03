@@ -40,14 +40,6 @@
 #endif
 
 
-struct lcap_rec_bucket {
-    unsigned long long       lrb_index;
-    struct list_node         lrb_node;
-    int                      lrb_rec_count; /**< Number of records */
-    size_t                   lrb_size;      /**< Aggregated record size */
-    struct changelog_rec    *lrb_records[]; /**< Pointers to the records */
-};
-
 enum rpc_op_type {
     /* Remote changelog consumers */
     RPC_OP_START        = 0,

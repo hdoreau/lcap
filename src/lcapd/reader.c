@@ -40,6 +40,14 @@
 extern int TerminateSig;
 
 
+struct lcap_rec_bucket {
+    unsigned long long       lrb_index;
+    struct list_node         lrb_node;
+    int                      lrb_rec_count; /**< Number of records */
+    size_t                   lrb_size;      /**< Aggregated record size */
+    struct changelog_rec    *lrb_records[]; /**< Pointers to the records */
+};
+
 struct reader_stats {
     struct timeval  rs_start_time;  /**< Start time */
     long            rs_rec_read;    /**< Number of read records */
