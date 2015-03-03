@@ -44,35 +44,11 @@ struct lcap_ctx;
 struct subtask_info;
 
 
-/* --- EXTERNAL PROCESSING MODULES --- */
-struct lcap_procmod_operations {
-    const char *(*cpo_name)(void);
-    int (*cpo_init)(struct lcap_ctx *ctx, void **mod_data);
-    int (*cpo_destroy)(struct lcap_ctx *ctx, void *mod_data);
-    int (*cpo_rec_enqueue)(struct lcap_ctx *ctx, void *mod_data,
-                           const struct changelog_rec *rec);
-    int (*cpo_rec_dequeue)(struct lcap_ctx *ctx, void *mod_data,
-                           struct changelog_rec *rec);
-    int (*cpo_set_ack)(struct lcap_ctx *ctx, void *mod_data,
-                       const char *device, long long recno);
-    int (*cpo_get_ack)(struct lcap_ctx *ctx, void *mod_data, const char *device,
-                       long long *recno);
-};
-
-struct lcap_proc_module {
-    const char                      *cpm_name;
-    void                            *cpm_dlh;
-    struct lcap_procmod_operations   cpm_ops;
-};
-
-
 /* --- GLOBAL APPLICATION CONTEXT --- */
 struct lcap_cfg {
     char            *ccf_mdt[MAX_MDT];
     char            *ccf_clreader;
     unsigned int     ccf_mdtcount;
-
-    char            *ccf_module;
 
     char            *ccf_file;
     char            *ccf_loggername;

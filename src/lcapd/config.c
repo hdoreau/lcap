@@ -97,22 +97,6 @@ static int lcap_parse_args(int ac, char **av, struct lcap_cfg *config)
     return 0;
 }
 
-static int handle_cfg_loadmodule_line(struct lcap_cfg *config, const char *line)
-{
-    if (config->ccf_module != NULL) {
-        fprintf(stderr, "A module was already specified: %s\n", config->ccf_module);
-        return -EALREADY;
-    }
-
-    config->ccf_module = cfg_get_arg(line);
-    if (config->ccf_module == NULL) {
-        fprintf(stderr, "Missing parameter: module name\n");
-        return -EINVAL;
-    }
-
-    return 0;
-}
-
 static int handle_cfg_batch_records_line(struct lcap_cfg *config, const char *line)
 {
     char *count;
@@ -212,7 +196,6 @@ static int __parse_config_line(struct lcap_cfg *config, const char *line)
     const char *begin = line;
     struct lcap_cfg_statement directives[] = {
         /* -- global -- */
-        {"loadmodule",    handle_cfg_loadmodule_line},
         {"batch_records", handle_cfg_batch_records_line},
         {"max_buckets",   handle_cfg_max_buckets_line},
         {"logtype",       handle_cfg_logtype_line},
@@ -300,7 +283,6 @@ int lcap_cfg_release(struct lcap_cfg *cfg)
         free(cfg->ccf_mdt[i]);
 
     free(cfg->ccf_clreader);
-    free(cfg->ccf_module);
     free(cfg->ccf_file);
     free(cfg->ccf_loggername);
 
