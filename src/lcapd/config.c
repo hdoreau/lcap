@@ -27,7 +27,7 @@
 #include <unistd.h>
 #include <ctype.h>
 
-#include "lcap.h"
+#include "lcapd_internal.h"
 
 #define DEFAULT_CFG_FILE    "/etc/lcap.cfg"
 #define DEFAULT_REC_BATCH   64

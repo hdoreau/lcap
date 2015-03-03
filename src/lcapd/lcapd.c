@@ -28,7 +28,6 @@
 #include <signal.h>
 #include <time.h>
 
-#include "lcap.h"
 #include "lcapd_internal.h"
 
 /**

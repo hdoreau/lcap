@@ -20,8 +20,7 @@
  */
 
 
-#include <lcap.h>
-#include <lcap_net.h>
+#include "lcapd_internal.h"
 
 
 int peer_rpc_send(void *sock, const struct conn_id *src_id,

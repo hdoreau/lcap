@@ -26,7 +26,6 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "lcap.h"
 #include "lcapd_internal.h"
 
 #include <lcap_idl.h>

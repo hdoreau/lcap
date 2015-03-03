@@ -1,7 +1,5 @@
 AM_CFLAGS = -Wall -Werror
 
-include_HEADERS=lcap.h
-
 sbin_PROGRAMS=lcapd
 #lcapd_CFLAGS=
 lcapd_LDFLAGS=-static
@@ -12,5 +10,4 @@ lcapd_SOURCES=	lcapd.c \
 		reader.c \
 		broker.c \
 		rpc_utils.c \
-		lcapd_internal.h \
-		lcap.h
+		lcapd_internal.h

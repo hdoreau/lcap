@@ -29,10 +29,8 @@
 #include <signal.h>
 #include <time.h>
 
-#include "lcap.h"
 #include "lcapd_internal.h"
 
-#include <lcap_idl.h>
 
 #define abs(x)  ((x) < 0 ? -(x) : (x))
 

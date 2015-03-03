@@ -23,9 +23,54 @@
 #ifndef LCAPD_INTERNAL_H
 #define LCAPD_INTERNAL_H
 
+#include <unistd.h>
+#include <limits.h>
+#include <assert.h>
+
+#include <pthread.h>
+
+#include <lustre/lustreapi.h>
+#include <lustre/lustre_user.h>
+
+#include <zmq.h>
+
+#include <lcap_idl.h>
+#include <lcap_log.h>
 #include <lcap_net.h>
 
-struct lcap_cfg;
+#define MAX_MDT 128
+
+struct lcap_cfg {
+    char            *ccf_mdt[MAX_MDT];
+    char            *ccf_clreader;
+    unsigned int     ccf_mdtcount;
+
+    char            *ccf_file;
+    char            *ccf_loggername;
+
+    bool             ccf_oneshot;
+
+    int              ccf_verbosity;
+    int              ccf_max_bkt;
+    int              ccf_rec_batch_count;
+    int              ccf_worker_count;
+};
+
+struct lcap_ctx {
+    struct lcap_cfg     *cc_config;
+    struct subtask_info *cc_rdr_info;
+    void                *cc_zctx;
+    void                *cc_sock;
+    struct conn_id      *cc_rcid[MAX_MDT];  /* readers identities */
+};
+
+
+static inline const struct lcap_cfg *ctx_config(const struct lcap_ctx *ctx)
+{
+    assert(ctx);
+    return ctx->cc_config;
+}
+
 
 int lcap_cfg_init(int ac, char **av, struct lcap_cfg *config);
 int lcap_cfg_release(struct lcap_cfg *config);
