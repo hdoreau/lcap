@@ -47,8 +47,8 @@ struct reader_stats {
 };
 
 struct client_state {
-    long long                cs_start;
-    struct list_node         cs_node;
+    long long                cs_start;  /**< Client start record number */
+    struct list_node         cs_node;   /**< List node in env::re_peers */
     struct lcap_rec_bucket  *cs_bucket; /**< Currently processed bucket */
     struct conn_id          *cs_ident;  /**< Variable length, keep last */
 };
@@ -58,7 +58,7 @@ struct reader_env {
     void                    *re_clpriv;  /**< LLAPI private changelog info */
     void                    *re_zctx;    /**< Local ZMQ context */
     void                    *re_sock;    /**< Records publication socket */
-    struct conn_id          *re_ident;
+    struct conn_id          *re_ident;   /**< This reader connection identity */
     struct reader_stats      re_stats;   /**< Reader statistics/metrics */
     int                      re_index;   /**< Reader index (one per MDT) */
     long long                re_srec;    /**< Next start index */
@@ -68,6 +68,10 @@ struct reader_env {
 };
 
 
+/**
+ * Copy and return a connection ID.
+ * Return NULL if memory could not be allocated.
+ */
 static struct conn_id *conn_id_dup(const struct conn_id *cid)
 {
     struct conn_id *dup;
@@ -81,6 +85,9 @@ static struct conn_id *conn_id_dup(const struct conn_id *cid)
     return dup;
 }
 
+/**
+ * Indicate whether the reader as described by \a env is full or still has
+ * available slots to store records. */
 static inline bool changelog_reader_full(const struct reader_env *env)
 {
     const struct lcap_cfg   *cfg = env->re_cfg;
@@ -88,11 +95,20 @@ static inline bool changelog_reader_full(const struct reader_env *env)
     return env->re_rec_cnt >= cfg->ccf_rec_batch_count * cfg->ccf_max_bkt;
 }
 
+/**
+ * Return the ASCIIZ string naming the MDT device this reader (as described by
+ * \a env) is attached to.
+ */
 static inline const char *reader_device(const struct reader_env *env)
 {
     return env->re_cfg->ccf_mdt[env->re_index];
 }
 
+/**
+ * Readers are named after the MDT device they are attached to. Fill and store
+ * a connection_id structure accordingly. This is used for identify ourselves
+ * to the broker.
+ */
 static int build_reader_identity(struct reader_env *env)
 {
     const char  *dev = reader_device(env);
@@ -107,6 +123,11 @@ static int build_reader_identity(struct reader_env *env)
     return 0;
 }
 
+/**
+ * Associate an identity to the reader described by \a env.
+ * An identity is a unique identifier used to route messages to the
+ * other components appropriately.
+ */
 static int changelog_reader_set_identity(struct reader_env *env)
 {
     int rc;
@@ -123,6 +144,11 @@ static int changelog_reader_set_identity(struct reader_env *env)
     return 0;
 }
 
+/**
+ * Try to initialize a changelog reader thread.
+ * A reader is given an index by the main lcapd process, which indicates
+ * which MDT to follow from the ones specified in the configuration.
+ */
 static int changelog_reader_init(const struct lcap_cfg *cfg, unsigned int idx,
                                  struct reader_env *env)
 {
@@ -167,6 +193,10 @@ static int changelog_reader_init(const struct lcap_cfg *cfg, unsigned int idx,
     return 0;
 }
 
+/**
+ * Poke the broker, and give him information about the health of the current
+ * reader as described by \env.
+ */
 static int changelog_reader_signal(struct reader_env *env, int errcode)
 {
     struct px_rpc_signal    rpc;
@@ -203,6 +233,9 @@ static int changelog_reader_signal(struct reader_env *env, int errcode)
     return 0;
 }
 
+/**
+ * Display information gathered during operation times.
+ */
 static int changelog_reader_print_stats(struct reader_env *env)
 {
     struct reader_stats *rstats = &env->re_stats;
@@ -227,6 +260,10 @@ static int changelog_reader_print_stats(struct reader_env *env)
     return 0;
 }
 
+/**
+ * Release resources associated to the current changelog reader as described by
+ * \a env. Print out statistics eventually.
+ */
 static int changelog_reader_release(struct reader_env *env)
 {
     int rc;
@@ -248,6 +285,10 @@ static int changelog_reader_release(struct reader_env *env)
     return 0;
 }
 
+/**
+ * Extract the next bucket of records to be served from \a env.
+ * This function returns NULL if no bucket was available.
+ */
 static inline struct lcap_rec_bucket *rec_bucket_pop(struct reader_env *env)
 {
     struct list_node        *n = list_pop_head(&env->re_buckets);
@@ -262,6 +303,9 @@ static inline struct lcap_rec_bucket *rec_bucket_pop(struct reader_env *env)
     return bkt;
 }
 
+/**
+ * Get a pointer (without unlinking it from \a env) to the last record bucket.
+ */
 static inline struct lcap_rec_bucket *rec_bucket_get(struct reader_env *env)
 {
     struct list_node *n = env->re_buckets.l_last;
@@ -272,6 +316,9 @@ static inline struct lcap_rec_bucket *rec_bucket_get(struct reader_env *env)
     return container_of(n, struct lcap_rec_bucket, lrb_node);
 }
 
+/**
+ * Allocate and insert a new, empty, bucket to \a env.
+ */
 static int rec_bucket_add(struct reader_env *env, int slot_cnt)
 {
     struct lcap_rec_bucket  *bkt;
@@ -286,6 +333,9 @@ static int rec_bucket_add(struct reader_env *env, int slot_cnt)
     return 0;
 }
 
+/**
+ * Release a bucket and all records it contains.
+ */
 static void rec_bucket_destroy(struct lcap_rec_bucket *bkt)
 {
     int i;
@@ -296,6 +346,9 @@ static void rec_bucket_destroy(struct lcap_rec_bucket *bkt)
     free(bkt);
 }
 
+/**
+ * Insert a new changelog_record into the reader's cache.
+ */
 static int changelog_reader_rec_store(struct reader_env *env,
                                       struct changelog_rec *rec)
 {
@@ -323,6 +376,13 @@ static int changelog_reader_rec_store(struct reader_env *env,
     return 0;
 }
 
+/**
+ * Get the client descriptor for the peer identified by \a cid. For this
+ * function to succeed and not return NULL, the corresponding peer must
+ * have registered itself using RPC_OP_START already.
+ *
+ * XXX This O(N) complexity is miserable here.
+ */
 static struct client_state *client_state_get(struct reader_env *env,
                                              const struct conn_id *cid)
 {
@@ -344,12 +404,20 @@ static struct client_state *client_state_get(struct reader_env *env,
     return NULL;
 }
 
+/**
+ * Free resources associated to a client state. It is assumed that the structure
+ * has already been unlinked from list.
+ */
 static void client_state_release(struct client_state *cs)
 {
     free(cs->cs_ident);
     free(cs);
 }
 
+/**
+ * Process START message from client. Registration consists in creating a new
+ * client state structure and replying OK.
+ */
 static int reader_handle_start(struct reader_env *env,
                                const struct lcapnet_request *req)
 {
@@ -389,6 +457,11 @@ static int reader_handle_start(struct reader_env *env,
     return 0;
 }
 
+/**
+ * Pack and deliver a RPC_OP_ENQUEUE message to a client.
+ * This consists in giving this client temporary ownership of a bucket of
+ * records, and sending them.
+ */
 static int enqueue_rec(struct reader_env *env, struct client_state *cs,
                        const struct lcapnet_request *req)
 {
@@ -422,6 +495,10 @@ static int enqueue_rec(struct reader_env *env, struct client_state *cs,
     return rc;
 }
 
+/**
+ * Process a request for records from client. If valid, and if records are
+ * currently available, they will be delivered immediately.
+ */
 static int reader_handle_dequeue(struct reader_env *env,
                                  const struct lcapnet_request *req)
 {
@@ -454,9 +531,13 @@ static int reader_handle_dequeue(struct reader_env *env,
      * until ack or timeout occurs */
     cs->cs_bucket = bkt;
 
-    return enqueue_rec(env, cs, req);
+    return enqueue_rec(env, cs, req); /* There you go! */
 }
 
+/**
+ * Process RPC_OP_CLEAR request.
+ * XXX This definitely needs more love.
+ */
 static int reader_handle_clear(struct reader_env *env,
                                const struct lcapnet_request *req)
 {
@@ -497,6 +578,10 @@ static int reader_handle_clear(struct reader_env *env,
     return ack_retcode(env->re_sock, NULL, req->lr_forward, 0);
 }
 
+/**
+ * Handle RPC_OP_FINI (deregistration) message. Release and forget all resources
+ * associated to a client.
+ */
 static int reader_handle_fini(struct reader_env *env,
                               const struct lcapnet_request *req)
 {
@@ -583,6 +668,9 @@ out_reply:
     return rc;
 }
 
+/**
+ * Process messages from broker/clients
+ */
 static int changelog_reader_serve(struct reader_env *env)
 {
     int             rc;
@@ -606,6 +694,9 @@ static int changelog_reader_serve(struct reader_env *env)
     return 0;
 }
 
+/**
+ * Enqueue records using the (unfortunately) blocking LLAPI interface.
+ */
 static int changelog_reader_enqueue(struct reader_env *env)
 {
     const char              *device = reader_device(env);
@@ -659,6 +750,13 @@ static int changelog_reader_enqueue(struct reader_env *env)
     return rc;
 }
 
+/**
+ * Changelog reader entry point.
+ * Initialize context accordingly, then switch between remote messages
+ * processing and local caching of changelog records. Both operations cannot
+ * (easily) be put in a single event loop because of the LLAPI changelog
+ * interface being blocking...
+ */
 void *reader_main(void *args)
 {
     struct subtask_args *sa = (struct subtask_args *)args;
