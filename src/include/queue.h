@@ -95,6 +95,21 @@ static inline struct list_node *list_pop_head(struct list *lst)
     return n;
 }
 
+static inline void list_insert_before(struct list *lst, struct list_node *n,
+                                      struct list_node *inserted)
+{
+    inserted->ln_prev = n->ln_prev;
+    inserted->ln_next = n;
+
+    if (n->ln_prev != NULL)
+        n->ln_prev->ln_next = inserted;
+    else
+        lst->l_first = inserted;
+
+    n->ln_prev = inserted;
+    lst->l_count++;
+}
+
 static inline void list_empty(struct list *lst)
 {
     while (lst->l_count > 0)

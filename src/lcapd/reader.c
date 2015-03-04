@@ -74,6 +74,7 @@ struct reader_env {
     long long                re_bkt_ack; /**< Next bucket to be cleared */
     long                     re_rec_cnt; /**< Total count of records */
     struct list              re_buckets; /**< Linked list of buckets */
+    struct list              re_buckets_acked;
     struct list              re_peers;   /**< Linked list of client states */
 };
 
@@ -563,6 +564,45 @@ static int reader_handle_dequeue(struct reader_env *env,
 }
 
 /**
+ * Mark a bucket as consumed (ready to be cleared) and return the next
+ * one that can actually be acknowledged upstream. Return NULL if none
+ * is ready yet.
+ */
+static struct lcap_rec_bucket *
+reader_get_clear_bucket(struct reader_env *env, struct lcap_rec_bucket *bkt)
+{
+    struct list_node        *nptr = env->re_buckets_acked.l_first;
+    struct lcap_rec_bucket  *bptr;
+
+    /* Don't do anything if bkt is to be acknowledged immediately */
+    if (bkt->lrb_index == env->re_bkt_ack)
+        return bkt;
+
+    /* Otherwise insert it into the sorted list */
+    while (nptr != NULL) {
+        bptr = container_of(nptr, struct lcap_rec_bucket, lrb_node);
+        assert(bptr->lrb_index != bkt->lrb_index);
+        if (bptr->lrb_index > bkt->lrb_index) {
+            list_insert_before(&env->re_buckets_acked, &bptr->lrb_node,
+                               &bkt->lrb_node);
+            goto out_ret;
+        }
+        nptr = nptr->ln_next;
+    }
+    list_append(&env->re_buckets_acked, &bkt->lrb_node);
+
+    /* Now return the one to be ack'd, if any */
+out_ret:
+    nptr = env->re_buckets_acked.l_first;
+    bptr = container_of(nptr, struct lcap_rec_bucket, lrb_node);
+
+    if (bptr->lrb_index != env->re_bkt_ack)
+        return NULL;
+
+    return bptr;
+}
+
+/**
  * Process RPC_OP_CLEAR request.
  */
 static int reader_handle_clear(struct reader_env *env,
@@ -592,7 +632,10 @@ static int reader_handle_clear(struct reader_env *env,
     }
 
     bkt = cs->cs_bucket;
-    if (bkt->lrb_index == env->re_bkt_ack) {
+    cs->cs_bucket = NULL;
+    bkt = reader_get_clear_bucket(env, bkt);
+    lcap_debug("Next bucket to ack: %lld", bkt ? bkt->lrb_index : -1LL);
+    if (bkt != NULL) {
         rc = llapi_changelog_clear(dev, cli, rec_bucket_max_index(bkt));
         if (rc < 0) {
             lcap_error("Cannot clear changelog records "
@@ -600,11 +643,10 @@ static int reader_handle_clear(struct reader_env *env,
                         dev, cli, rec_bucket_max_index(bkt), strerror(-rc));
             return rc;
         }
+        list_remove(&env->re_buckets_acked, &bkt->lrb_node);
+        rec_bucket_destroy(bkt);
         env->re_bkt_ack++;
     }
-
-    rec_bucket_destroy(cs->cs_bucket);
-    cs->cs_bucket = NULL;
 
     return ack_retcode(env->re_sock, NULL, req->lr_forward, 0);
 }
