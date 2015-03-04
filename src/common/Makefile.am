@@ -1,4 +1,4 @@
-AM_CFLAGS = -Wall -Werror -fPIC
+AM_CFLAGS = $(CC_OPTS)
 
 noinst_LTLIBRARIES=liblcapcommon.la
 
