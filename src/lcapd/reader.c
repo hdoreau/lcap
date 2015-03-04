@@ -303,15 +303,11 @@ static int changelog_reader_release(struct reader_env *env)
 static inline struct lcap_rec_bucket *rec_bucket_pop(struct reader_env *env)
 {
     struct list_node        *n = list_pop_head(&env->re_buckets);
-    struct lcap_rec_bucket  *bkt;
 
     if (n == NULL)
         return NULL;
 
-    bkt = container_of(n, struct lcap_rec_bucket, lrb_node);
-    env->re_rec_cnt -= bkt->lrb_rec_count;
-
-    return bkt;
+    return container_of(n, struct lcap_rec_bucket, lrb_node);
 }
 
 /**
@@ -644,6 +640,7 @@ static int reader_handle_clear(struct reader_env *env,
             return rc;
         }
         list_remove(&env->re_buckets_acked, &bkt->lrb_node);
+        env->re_rec_cnt -= bkt->lrb_rec_count;
         rec_bucket_destroy(bkt);
         env->re_bkt_ack++;
     }
