@@ -175,8 +175,8 @@ int lcapd_process_request(void *hint, const struct lcapnet_request *req)
     rc = rpc_handle_one(ctx, hdr->op_type, req);
 
 out_reply:
-    lcap_verb("Received %s RPC [rc=%d | %s]", rpc_optype2str(hdr->op_type),
-              rc, zmq_strerror(-rc));
+    lcap_debug("Received %s RPC [rc=%d | %s]", rpc_optype2str(hdr->op_type),
+               rc, zmq_strerror(-rc));
 
     if (rc < 0)
         rc = ack_retcode(ctx->cc_sock, NULL, req->lr_remote, rc);

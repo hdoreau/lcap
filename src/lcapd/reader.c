@@ -479,6 +479,7 @@ static int reader_handle_start(struct reader_env *env,
         return rc;
     }
 
+    lcap_info("Registered new client for %s", reader_device(env));
     return 0;
 }
 
@@ -514,6 +515,7 @@ static int enqueue_rec(struct reader_env *env, struct client_state *cs,
         rpc_next_rec += copy_len;
     }
 
+    lcap_verb("Sending %d records to client", cs->cs_bucket->lrb_rec_count);
     rc = peer_rpc_send(env->re_sock, NULL, req->lr_forward, (const char *)rpc,
                        rpc_size);
     free(rpc);
@@ -630,8 +632,9 @@ static int reader_handle_clear(struct reader_env *env,
     bkt = cs->cs_bucket;
     cs->cs_bucket = NULL;
     bkt = reader_get_clear_bucket(env, bkt);
-    lcap_debug("Next bucket to ack: %lld", bkt ? bkt->lrb_index : -1LL);
     if (bkt != NULL) {
+        lcap_verb("About to acknowledge bucket #%lld (up to record %lld)",
+                  bkt->lrb_index, rec_bucket_max_index(bkt));
         rc = llapi_changelog_clear(dev, cli, rec_bucket_max_index(bkt));
         if (rc < 0) {
             lcap_error("Cannot clear changelog records "
@@ -671,7 +674,7 @@ static int reader_handle_fini(struct reader_env *env,
 
     list_remove(&env->re_peers, &cs->cs_node);
     client_state_release(cs);
-
+    lcap_info("Deregistered client for %s", reader_device(env));
     return ack_retcode(env->re_sock, NULL, req->lr_forward, 0);
 }
 
@@ -728,8 +731,8 @@ static int changelog_reader_rpc_hdl(void *hint,
     rc = rpc_handle_one(env, hdr->op_type, req);
 
 out_reply:
-    lcap_verb("Received %s RPC [rc=%d | %s]", rpc_optype2str(hdr->op_type),
-              rc, zmq_strerror(-rc));
+    lcap_debug("Received %s RPC [rc=%d | %s]", rpc_optype2str(hdr->op_type),
+               rc, rc == 1 ? "EOF" : zmq_strerror(-rc));
 
     /* Error or DEQUEUE EOF */
     if (rc < 0 || rc == 1)
@@ -760,7 +763,7 @@ static int changelog_reader_serve(struct reader_env *env)
     if (rc < 0)
         return rc;
 
-    lcap_info("Processed %d client RPCs", rc);
+    lcap_debug("Processed %d client RPCs", rc);
     return 0;
 }
 
@@ -817,6 +820,7 @@ static int changelog_reader_enqueue(struct reader_env *env)
         env->re_clpriv = NULL;
     }
 
+    lcap_verb("Enqueued %d records from %s", batch_count, reader_device(env));
     return rc;
 }
 
