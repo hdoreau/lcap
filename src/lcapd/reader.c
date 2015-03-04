@@ -807,7 +807,7 @@ static int changelog_reader_enqueue(struct reader_env *env)
         env->re_rec_cnt++;
         batch_count++;
 
-        if (batch_count > batch_size || changelog_reader_full(env))
+        if (batch_count >= batch_size || changelog_reader_full(env))
             break;
     }
 
