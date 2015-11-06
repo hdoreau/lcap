@@ -1,4 +1,4 @@
-AM_CFLAGS = $(CC_OPTS)
+AM_CFLAGS=$(CC_OPT)
 
 noinst_LTLIBRARIES=liblcapcommon.la
 

@@ -116,4 +116,11 @@ static inline void list_empty(struct list *lst)
         list_pop_head(lst);
 }
 
+#define list_entry(ptr, type, member)   container_of(ptr, type, member)
+
+#define list_foreach_entry(pos, node, member)                       \
+        for ((pos) = list_entry((node), typeof(*(pos)), member);    \
+             &(pos)->member != NULL;                                \
+             (pos) = list_entry((pos)->member.ln_next, typeof(*(pos)), member))
+
 #endif

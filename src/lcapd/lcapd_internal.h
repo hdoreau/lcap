@@ -92,6 +92,7 @@ struct subtask_args {
 void *reader_main(void *args);
 
 #define READERS_URL     "inproc://lcaprdr.ipc"
+#define CLG_ACK_URL     "inproc://lcapack.ipc"
 #define WORKERS_URL     "inproc://lcapwrk.ipc"
 
 #define BROKER_CONN_URL "tcp://localhost:8189"

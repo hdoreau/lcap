@@ -31,28 +31,28 @@
 #include <lcap_idl.h>
 
 
-/* Map to FLAG_FOLLOW (not implemented in lustre as of now) */
-#define LCAP_CL_FOLLOW  (0x01 << 0)
+enum lcap_cl_flags {
+    /* Map to FLAG_FOLLOW (not implemented in lustre as of now) */
+    LCAP_CL_FOLLOW  = 0x01,
+    /* Blocking I/O */
+    LCAP_CL_BLOCK   = 0x02,
+    /* NULL-channel, get records directly from Lustre */
+    LCAP_CL_DIRECT  = 0x04,
+    /* Include (possibly empty) jobid record extension */
+    LCAP_CL_JOBID   = 0x08
+};
 
-/* Blocking I/O */
-#define LCAP_CL_BLOCK   (0x01 << 1)
-
-/* NULL-channel, get records directly from Lustre */
-#define LCAP_CL_DIRECT  (0x01 << 2)
-
-/* Include (possibly empty) jobid record extension */
-#define LCAP_CL_JOBID   (0x01 << 3)
 
 struct lcap_cl_ctx;
 
 struct lcap_cl_operations {
-    int (*cco_start)(struct lcap_cl_ctx *ctx, int flags, const char *mdtname,
-                     long long startrec);
-    int (*cco_fini)(struct lcap_cl_ctx *ctx);
-    int (*cco_recv)(struct lcap_cl_ctx *ctx, struct changelog_rec **rec);
-    int (*cco_free)(struct lcap_cl_ctx *ctx, struct changelog_rec **rec);
-    int (*cco_clear)(struct lcap_cl_ctx *ctx, const char *mdtname,
-                     const char *id, long long endrec);
+    int (*cco_start)(struct lcap_cl_ctx *, enum lcap_cl_flags, const char *,
+                     long long);
+    int (*cco_fini)(struct lcap_cl_ctx *);
+    int (*cco_recv)(struct lcap_cl_ctx *, struct changelog_rec **);
+    int (*cco_free)(struct lcap_cl_ctx *, struct changelog_rec **);
+    int (*cco_clear)(struct lcap_cl_ctx *, const char *, const char *,
+                     long long);
 };
 
 /* Opaque context.
@@ -76,7 +76,7 @@ struct lcap_cl_ctx {
  * \retval 0 on success
  * \retval Appropriate negative error code on failure
  */
-int lcap_changelog_start(struct lcap_cl_ctx **pctx, int flags,
+int lcap_changelog_start(struct lcap_cl_ctx **pctx, enum lcap_cl_flags flags,
                          const char *mdtname, long long startrec);
 
 /**
@@ -143,6 +143,7 @@ static inline int lcap_changelog_free(struct lcap_cl_ctx *ctx,
  * \param[in]   mdtname The device name on which to free the records
  * \param[in]   id      Changelog reader ID (such as "cl1")
  * \param[in]   endrec  Maximum record ID to acknowledge
+ * \param[in]   mode    Acknowledge mode
  *
  * \retval 0 on success
  * \retval Appropriate negative error code on failure

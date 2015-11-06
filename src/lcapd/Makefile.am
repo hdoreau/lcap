@@ -1,4 +1,4 @@
-AM_CFLAGS = -Wall -Werror
+AM_CFLAGS=$(CC_OPT)
 
 sbin_PROGRAMS=lcapd
 #lcapd_CFLAGS=

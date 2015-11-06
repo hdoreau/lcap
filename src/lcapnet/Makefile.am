@@ -1,4 +1,4 @@
-AM_CFLAGS = -Wall -Werror -fPIC
+AM_CFLAGS=$(CC_OPT)
 
 noinst_LTLIBRARIES=liblcapnet.la
 

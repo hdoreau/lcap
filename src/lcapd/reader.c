@@ -20,6 +20,7 @@
  */
 
 
+#include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -31,20 +32,65 @@
 #include <lcap_idl.h>
 
 /**
+ * LCAPD changelog reader.
+ *
+ * This thread greedily consumes records and dispatch them into buckets.
+ * A bucket is a set of consecutive records and serves as an abstraction
+ * for efficient delivery and processing.
+ *
+ * The reader maintains an _ordered_ linked list of buckets. As long as there
+ * are available records from lustre and free slots (to not blow up memory) it
+ * will try to expand the list by reading new records.
+ *
+ * Three pointers are maintained on the list:
+ * - current_open: points to the next bucket where to insert a newly read record
+ * - deliver_next: points to the next bucket to send to a client asking for one
+ * - cleanup_next: points to the next bucket to acknowledge to lustre
+ *
+ * Once a bucket has been acknowledged, it is considered as ready (for ACK).
+ *
+ * If the consumer fails to consume and acknowledge a bucket in time, that
+ * bucket and the following ones are considered non-ready again and deliver_next
+ * comes back to it, for resend.
+ *
+ * If the bucket designated by cleanup_next enters the ACK_READY state, it and
+ * all the (directly) following ones that are ACK_READY are cleaned upstream
+ * (i.e. to lustre) and freed.
+ *
+ *
+ *              deliver_next
+ *              |   +--------- current_open
+ *              v   v
+ *      A - B - C - D - NULL
+ *      P   R   P   P               (Ready/Pending)
+ *      ^
+ *      |
+ *      cleanup_next
+ */
+
+
+/**
  * Number of seconds to wait between two retries at the end of the
  * changelog records stream.
  */
 #define EOF_RETRY_DELAY 1
+
+/**
+ * Delay to acknowledge a bucket before it expires.
+ */
+#define ACK_TIMEOUT_MSEC    10000
 
 
 extern int TerminateSig;
 
 
 struct lcap_rec_bucket {
-    unsigned long long       lrb_index;
-    struct list_node         lrb_node;
-    int                      lrb_rec_count; /**< Number of records */
+    long                     lrb_index;
+    struct timespec          lrb_expiry;    /**< Expiry time */
+    bool                     lrb_ready;     /**< Fully consumed / acked */
+    struct list_node         lrb_node;      /**< Entry in env::re_buckets */
     size_t                   lrb_size;      /**< Aggregated record size */
+    int                      lrb_rec_count; /**< Number of records */
     struct changelog_rec    *lrb_records[]; /**< Pointers to the records */
 };
 
@@ -70,14 +116,38 @@ struct reader_env {
     struct reader_stats      re_stats;   /**< Reader statistics/metrics */
     int                      re_index;   /**< Reader index (one per MDT) */
     long long                re_srec;    /**< Next start index */
-    long long                re_bkt_idx; /**< Global bucket index counter */
-    long long                re_bkt_ack; /**< Next bucket to be cleared */
+    long                     re_bkt_idx; /**< Global bucket index counter */
     long                     re_rec_cnt; /**< Total count of records */
+    struct lcap_rec_bucket  *re_current_open; /**< Open bucket for insert */
+    struct lcap_rec_bucket  *re_deliver_next; /**< Next bucket to be sent */
+    struct lcap_rec_bucket  *re_cleanup_next; /**< Next bucket to be cleared */
     struct list              re_buckets; /**< Linked list of buckets */
-    struct list              re_buckets_acked;
     struct list              re_peers;   /**< Linked list of client states */
 };
 
+
+/**
+ * Allocate and insert a new, empty, bucket to \a env.
+ */
+static int rec_bucket_add(struct reader_env *env)
+{
+    struct lcap_rec_bucket  *bkt;
+    int                      slot_cnt = env->re_cfg->ccf_rec_batch_count;
+    size_t                   bkt_sz = sizeof(*bkt) +
+                                      slot_cnt * sizeof(struct changelog_rec *);
+
+    bkt = (struct lcap_rec_bucket *)calloc(1, bkt_sz);
+    if (bkt == NULL)
+        return -ENOMEM;
+
+    bkt->lrb_index = env->re_bkt_idx++;
+    list_append(&env->re_buckets, &bkt->lrb_node);
+
+    env->re_current_open = bkt;
+
+    lcap_debug("Opened bucket #%ld for insert at %p", bkt->lrb_index, bkt);
+    return 0;
+}
 
 /**
  * Copy and return a connection ID.
@@ -169,6 +239,17 @@ static int changelog_reader_init(const struct lcap_cfg *cfg, unsigned int idx,
     env->re_cfg   = cfg;
     env->re_index = idx;
     gettimeofday(&env->re_stats.rs_start_time, NULL);
+
+    /* Create a first bucket... */
+    rc = rec_bucket_add(env);
+    if (rc)
+        return rc;
+
+    env->re_current_open = 
+    env->re_deliver_next =
+    env->re_cleanup_next = list_entry(env->re_buckets.l_first,
+                                      struct lcap_rec_bucket,
+                                      lrb_node);
 
     env->re_zctx = zmq_ctx_new();
     if (env->re_zctx == NULL) {
@@ -296,49 +377,46 @@ static int changelog_reader_release(struct reader_env *env)
     return 0;
 }
 
+static inline struct lcap_rec_bucket *bucket_next(struct lcap_rec_bucket *bkt)
+{
+    if (bkt == NULL || bkt->lrb_node.ln_next == NULL)
+        return NULL;
+
+    return list_entry(bkt->lrb_node.ln_next, struct lcap_rec_bucket, lrb_node);
+}
+
 /**
- * Extract the next bucket of records to be served from \a env.
+ * Extract the next bucket of records to be served from \a env by
+ * increasing env::re_deliver_next.
  * This function returns NULL if no bucket was available.
  */
-static inline struct lcap_rec_bucket *rec_bucket_pop(struct reader_env *env)
+static struct lcap_rec_bucket *rec_bucket_get(struct reader_env *env)
 {
-    struct list_node        *n = list_pop_head(&env->re_buckets);
+    struct lcap_rec_bucket *bkt = env->re_cleanup_next;
+    struct lcap_rec_bucket *tmp;
+    struct timespec         now;
 
-    if (n == NULL)
-        return NULL;
+    assert(bkt != NULL);
 
-    return container_of(n, struct lcap_rec_bucket, lrb_node);
-}
+    /* Has the first non-ack'ed bucket expired? */
+    clock_gettime(CLOCK_MONOTONIC_COARSE, &now);
+    if (now.tv_sec > bkt->lrb_expiry.tv_sec) {
+        list_foreach_entry(tmp, &bkt->lrb_node, lrb_node) {
+            if (tmp == env->re_deliver_next)
+                break;
+            lcap_debug("Marking bucket #%ld at %p non ready",
+                       tmp->lrb_index, tmp);
+            tmp->lrb_ready = false;
+        }
+        env->re_deliver_next = bkt;
+    } else {
+        bkt = env->re_deliver_next;
+        if (bkt == NULL)
+            return NULL;
+    }
 
-/**
- * Get a pointer (without unlinking it from \a env) to the last record bucket.
- */
-static inline struct lcap_rec_bucket *rec_bucket_get(struct reader_env *env)
-{
-    struct list_node *n = env->re_buckets.l_last;
-
-    if (n == NULL)
-        return NULL;
-
-    return container_of(n, struct lcap_rec_bucket, lrb_node);
-}
-
-/**
- * Allocate and insert a new, empty, bucket to \a env.
- */
-static int rec_bucket_add(struct reader_env *env, int slot_cnt)
-{
-    struct lcap_rec_bucket  *bkt;
-    size_t                   bkt_sz = sizeof(*bkt) +
-                                      slot_cnt * sizeof(struct changelog_rec *);
-
-    bkt = (struct lcap_rec_bucket *)calloc(1, bkt_sz);
-    if (bkt == NULL)
-        return -ENOMEM;
-
-    bkt->lrb_index = env->re_bkt_idx++;
-    list_append(&env->re_buckets, &bkt->lrb_node);
-    return 0;
+    env->re_deliver_next = bucket_next(env->re_deliver_next);
+    return bkt;
 }
 
 /**
@@ -348,9 +426,13 @@ static void rec_bucket_destroy(struct lcap_rec_bucket *bkt)
 {
     int i;
 
-    for (i = 0; i < bkt->lrb_rec_count; i++)
+    for (i = 0; i < bkt->lrb_rec_count; i++) {
+        lcap_debug("Destroying record %lld at %p",
+                   bkt->lrb_records[i]->cr_index, bkt->lrb_records[i]);
         llapi_changelog_free(&bkt->lrb_records[i]);
+    }
 
+    lcap_debug("Destroying bucket #%ld at %p", bkt->lrb_index, bkt);
     free(bkt);
 }
 
@@ -371,17 +453,17 @@ static long long rec_bucket_max_index(const struct lcap_rec_bucket *bkt)
 static int changelog_reader_rec_store(struct reader_env *env,
                                       struct changelog_rec *rec)
 {
-    struct lcap_rec_bucket  *current = rec_bucket_get(env);
+    struct lcap_rec_bucket  *current = env->re_current_open;
     int                      batch_size;
     int                      idx;
     int                      rc;
 
     batch_size = env->re_cfg->ccf_rec_batch_count;
     if (current == NULL || current->lrb_rec_count == batch_size) {
-        rc = rec_bucket_add(env, batch_size);
+        rc = rec_bucket_add(env);
         if (rc)
             return rc;
-        current = rec_bucket_get(env);
+        current = env->re_current_open;
     }
 
     assert(current != NULL);
@@ -410,7 +492,7 @@ static struct client_state *client_state_get(struct reader_env *env,
     struct client_state *cs;
 
     for (lnode = env->re_peers.l_first; lnode != NULL; lnode = lnode->ln_next) {
-        cs = container_of(lnode, struct client_state, cs_node);
+        cs = list_entry(lnode, struct client_state, cs_node);
         cid_curr = cs->cs_ident;
 
         if (cid_curr->ci_length != cid->ci_length)
@@ -483,10 +565,14 @@ static int reader_handle_start(struct reader_env *env,
     return 0;
 }
 
+static void bucket_set_expiry_time(struct lcap_rec_bucket *bkt)
+{
+    clock_gettime(CLOCK_MONOTONIC_COARSE, &bkt->lrb_expiry);
+    bkt->lrb_expiry.tv_sec += ACK_TIMEOUT_MSEC / 1000;
+}
+
 /**
  * Pack and deliver a RPC_OP_ENQUEUE message to a client.
- * This consists in giving this client temporary ownership of a bucket of
- * records, and sending them.
  */
 static int enqueue_rec(struct reader_env *env, struct client_state *cs,
                        const struct lcapnet_request *req)
@@ -515,9 +601,12 @@ static int enqueue_rec(struct reader_env *env, struct client_state *cs,
         rpc_next_rec += copy_len;
     }
 
+    bucket_set_expiry_time(cs->cs_bucket);
+
     lcap_verb("Sending %d records to client", cs->cs_bucket->lrb_rec_count);
     rc = peer_rpc_send(env->re_sock, NULL, req->lr_forward, (const char *)rpc,
                        rpc_size);
+
     free(rpc);
     return rc;
 }
@@ -532,6 +621,7 @@ static int reader_handle_dequeue(struct reader_env *env,
     struct px_rpc_dequeue   *rpc = (struct px_rpc_dequeue *)req->lr_body;
     struct client_state     *cs;
     struct lcap_rec_bucket  *bkt;
+    int                      rc;
 
     if (req->lr_body_len < sizeof(*rpc)) {
         lcap_error("Truncated DEQUEUE RPC, ignoring");
@@ -550,54 +640,22 @@ static int reader_handle_dequeue(struct reader_env *env,
         return -EPROTO;
     }
 
-    bkt = rec_bucket_pop(env);
+    bkt = rec_bucket_get(env);
     if (bkt == NULL)
         return 1;   /* EOF */
+
+    /* we're about to deliver a non-full bucket */
+    if (bkt == env->re_current_open) {
+        rc = rec_bucket_add(env);
+        if (rc)
+            return rc;
+    }
 
     /* From now on, this bucket belongs to the corresponding client,
      * until ack or timeout occurs */
     cs->cs_bucket = bkt;
 
     return enqueue_rec(env, cs, req); /* There you go! */
-}
-
-/**
- * Mark a bucket as consumed (ready to be cleared) and return the next
- * one that can actually be acknowledged upstream. Return NULL if none
- * is ready yet.
- */
-static struct lcap_rec_bucket *
-reader_get_clear_bucket(struct reader_env *env, struct lcap_rec_bucket *bkt)
-{
-    struct list_node        *nptr = env->re_buckets_acked.l_first;
-    struct lcap_rec_bucket  *bptr;
-
-    /* Don't do anything if bkt is to be acknowledged immediately */
-    if (bkt->lrb_index == env->re_bkt_ack)
-        return bkt;
-
-    /* Otherwise insert it into the sorted list */
-    while (nptr != NULL) {
-        bptr = container_of(nptr, struct lcap_rec_bucket, lrb_node);
-        assert(bptr->lrb_index != bkt->lrb_index);
-        if (bptr->lrb_index > bkt->lrb_index) {
-            list_insert_before(&env->re_buckets_acked, &bptr->lrb_node,
-                               &bkt->lrb_node);
-            goto out_ret;
-        }
-        nptr = nptr->ln_next;
-    }
-    list_append(&env->re_buckets_acked, &bkt->lrb_node);
-
-    /* Now return the one to be ack'd, if any */
-out_ret:
-    nptr = env->re_buckets_acked.l_first;
-    bptr = container_of(nptr, struct lcap_rec_bucket, lrb_node);
-
-    if (bptr->lrb_index != env->re_bkt_ack)
-        return NULL;
-
-    return bptr;
 }
 
 /**
@@ -609,6 +667,7 @@ static int reader_handle_clear(struct reader_env *env,
     struct px_rpc_clear     *rpc = (struct px_rpc_clear *)req->lr_body;
     struct client_state     *cs;
     struct lcap_rec_bucket  *bkt;
+    struct lcap_rec_bucket  *next;
     const char              *cli = env->re_cfg->ccf_clreader;
     const char              *dev = reader_device(env);
     int                      rc;
@@ -631,10 +690,19 @@ static int reader_handle_clear(struct reader_env *env,
 
     bkt = cs->cs_bucket;
     cs->cs_bucket = NULL;
-    bkt = reader_get_clear_bucket(env, bkt);
-    if (bkt != NULL) {
-        lcap_verb("About to acknowledge bucket #%lld (up to record %lld)",
+
+    /* Mark the record as "cleanable" */
+    bkt->lrb_ready = true;
+
+    list_foreach_entry(bkt, &env->re_cleanup_next->lrb_node, lrb_node) {
+        if (!bkt->lrb_ready)
+            break;
+
+        env->re_cleanup_next = bkt;
+
+        lcap_verb("About to acknowledge bucket #%ld (up to record %lld)",
                   bkt->lrb_index, rec_bucket_max_index(bkt));
+
         rc = llapi_changelog_clear(dev, cli, rec_bucket_max_index(bkt));
         if (rc < 0) {
             lcap_error("Cannot clear changelog records "
@@ -642,10 +710,10 @@ static int reader_handle_clear(struct reader_env *env,
                         dev, cli, rec_bucket_max_index(bkt), strerror(-rc));
             return rc;
         }
-        list_remove(&env->re_buckets_acked, &bkt->lrb_node);
+
+        list_remove(&env->re_buckets, &bkt->lrb_node);
         env->re_rec_cnt -= bkt->lrb_rec_count;
         rec_bucket_destroy(bkt);
-        env->re_bkt_ack++;
     }
 
     return ack_retcode(env->re_sock, NULL, req->lr_forward, 0);

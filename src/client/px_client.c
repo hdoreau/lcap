@@ -33,8 +33,8 @@ struct px_zmq_data {
     void                     *zmq_srv;  /**< Socket to server */
     void                     *rec_buff; /**< RPC buffer containing records */
     struct changelog_rec    **records;  /**< Undelivered (cached) records */
-    unsigned int              rec_nxt;  /**< Next record to read */
-    unsigned int              rec_cnt;  /**< High watermark */
+    long long                 rec_nxt;  /**< Next record to read */
+    long long                 rec_cnt;  /**< High watermark */
     int                       rec_mdt_len;
     char                      rec_mdt[128];
 };
@@ -207,7 +207,7 @@ static int cl_ack_retcode(struct px_zmq_data *pzd)
     return rep_ack.pr_retcode;
 }
 
-static int px_changelog_start(struct lcap_cl_ctx *ctx, int flags,
+static int px_changelog_start(struct lcap_cl_ctx *ctx, enum lcap_cl_flags flags,
                               const char *mdtname, long long startrec)
 {
     struct px_zmq_data      *pzd;

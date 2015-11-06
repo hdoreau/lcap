@@ -28,7 +28,7 @@ extern struct lcap_cl_operations cl_ops_null;
 extern struct lcap_cl_operations cl_ops_proxy;
 
 
-int lcap_changelog_start(struct lcap_cl_ctx **pctx, int flags,
+int lcap_changelog_start(struct lcap_cl_ctx **pctx, enum lcap_cl_flags flags,
                          const char *mdtname, long long startrec)
 {
     struct lcap_cl_ctx  *ctx;

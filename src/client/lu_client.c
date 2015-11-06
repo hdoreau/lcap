@@ -24,7 +24,7 @@
 #include <stdlib.h>
 
 
-static int flags_translate(int lcap_flags)
+static int flags_translate(enum lcap_cl_flags lcap_flags)
 {
     int lu_flags = 0;
 
@@ -40,7 +40,7 @@ static int flags_translate(int lcap_flags)
     return lu_flags;
 }
 
-static int lu_changelog_start(struct lcap_cl_ctx *ctx, int flags,
+static int lu_changelog_start(struct lcap_cl_ctx *ctx, enum lcap_cl_flags flags,
                               const char *mdtname, long long startrec)
 {
     int lu_flags;

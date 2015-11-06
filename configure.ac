@@ -78,5 +78,6 @@ AC_CONFIG_FILES([Makefile
                  src/lcapd/Makefile
                  src/lcapnet/Makefile
                  src/tools/Makefile
+                 src/tests/Makefile
                  lcap.spec])
 AC_OUTPUT

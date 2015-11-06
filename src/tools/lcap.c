@@ -50,7 +50,7 @@ int main(int ac, char **av)
     struct lcap_cl_ctx      *ctx = NULL;
     const char              *mdtname = NULL;
     struct changelog_rec    *rec;
-    int                      flags = LCAP_CL_BLOCK;
+    int                      flags = LCAP_CL_BLOCK | LCAP_CL_JOBID;
     int                      c;
     int                      rc;
 
@@ -121,7 +121,7 @@ int main(int ac, char **av)
 
         printf("\n");
 
-        rc = lcap_changelog_clear(ctx, mdtname, "", rec->cr_index);
+        rc = lcap_changelog_clear(ctx, mdtname, "cl1", rec->cr_index);
         if (rc < 0) {
             fprintf(stderr, "lcap_changelog_clear: %s\n", zmq_strerror(-rc));
             return 1;
